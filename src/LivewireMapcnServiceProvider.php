@@ -2,9 +2,9 @@
 
 namespace Kwasii\LivewireMapcn;
 
+use Kwasii\LivewireMapcn\Commands\LivewireMapcnCommand;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
-use Kwasii\LivewireMapcn\Commands\LivewireMapcnCommand;
 
 class LivewireMapcnServiceProvider extends PackageServiceProvider
 {
