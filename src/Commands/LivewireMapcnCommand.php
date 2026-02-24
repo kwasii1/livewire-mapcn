@@ -1,12 +1,12 @@
 <?php
 
-namespace VendorName\Skeleton\Commands;
+namespace Kwasii\LivewireMapcn\Commands;
 
 use Illuminate\Console\Command;
 
-class SkeletonCommand extends Command
+class LivewireMapcnCommand extends Command
 {
-    public $signature = 'skeleton';
+    public $signature = 'livewire-mapcn';
 
     public $description = 'My command';
 
