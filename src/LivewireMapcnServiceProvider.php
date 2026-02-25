@@ -56,8 +56,8 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
         });
 
         $this->publishes([
-            __DIR__ . '/../resources/js' => public_path('vendor/livewire-mapcn'),
-            __DIR__ . '/../resources/css' => public_path('vendor/livewire-mapcn'),
+            __DIR__.'/../resources/js' => public_path('vendor/livewire-mapcn'),
+            __DIR__.'/../resources/css' => public_path('vendor/livewire-mapcn'),
         ], 'livewire-mapcn-assets');
 
         $this->registerAssetRoutes();
@@ -67,7 +67,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
     {
         Route::get('/livewire-mapcn/livewire-mapcn.js', function () {
             return response(
-                file_get_contents(__DIR__ . '/../resources/js/livewire-mapcn.js'),
+                file_get_contents(__DIR__.'/../resources/js/livewire-mapcn.js'),
                 200,
                 ['Content-Type' => 'application/javascript']
             );
@@ -75,7 +75,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
 
         Route::get('/livewire-mapcn/livewire-mapcn.css', function () {
             return response(
-                file_get_contents(__DIR__ . '/../resources/css/livewire-mapcn.css'),
+                file_get_contents(__DIR__.'/../resources/css/livewire-mapcn.css'),
                 200,
                 ['Content-Type' => 'text/css']
             );
