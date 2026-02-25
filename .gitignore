@@ -30,3 +30,6 @@ phpstan.neon
 testbench.yaml
 /docs
 /coverage
+COMPONENTS_GUIDE.md
+livewire-map-requirements.md
+docs-guide.md
