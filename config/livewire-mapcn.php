@@ -2,7 +2,7 @@
 
 // config for Kwasii/LivewireMapcn
 return [
-    'default_provider' => 'carto-voyager',
+    'default_provider' => 'carto-positron',
     'maplibre_version' => '4.x',
     'load_from_cdn' => true,
     'cdn_url' => 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.x/dist/maplibre-gl.js',
