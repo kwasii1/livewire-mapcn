@@ -13,11 +13,11 @@
         pitchAlignment: '{{ $pitchAlignment }}'
     }"
     class="hidden {{ $class }}">
+    {{ $slot }}
+
+    @if(!str_contains($slot->toHtml(), 'x-ref="markerContent"'))
     <template x-ref="markerContent">
-        @if($slot->isNotEmpty())
-        {{ $slot }}
-        @else
         <div class="w-4 h-4 rounded-full border-2 border-white shadow-md" style="background-color: {{ $color }};"></div>
-        @endif
     </template>
+    @endif
 </div>
