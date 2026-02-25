@@ -510,6 +510,9 @@
                         popup.addTo(map);
                     }
 
+                    let lastOpenState = config.open;
+                    let suppressEffect = false;
+
                     popup.on("open", () => {
                         lastOpenState = true;
                         dispatchToLivewire(mapEl, "map:popup-open", {
@@ -518,22 +521,24 @@
                     });
 
                     popup.on("close", () => {
+                        suppressEffect = true;
                         lastOpenState = false;
                         dispatchToLivewire(mapEl, "map:popup-close", {
                             id: config.id,
                         });
                     });
 
-                    let lastOpenState = config.open;
-
                     Alpine.effect(() => {
                         const newConfig = evaluate(expression);
                         popup.setLngLat([newConfig.lng, newConfig.lat]);
 
-                        // Only manage open state if it's explicitly controlled by Livewire
-                        // and the state has actually changed from the previous evaluation
+                        if (suppressEffect) {
+                            suppressEffect = false;
+                            return;
+                        }
+
                         if (
-                            newConfig.open !== undefined &&
+                            typeof newConfig.open === "boolean" &&
                             newConfig.open !== lastOpenState
                         ) {
                             lastOpenState = newConfig.open;
