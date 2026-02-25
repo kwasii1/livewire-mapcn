@@ -2,10 +2,21 @@
     "use strict";
 
     function dispatchToLivewire(el, event, detail) {
-        if (window.Livewire?.version?.startsWith("4")) {
-            el.dispatchEvent(new CustomEvent(event, { detail, bubbles: true }));
-        } else {
-            window.Livewire?.dispatch(event, detail);
+        // Always dispatch DOM event so Alpine.js can listen with @event
+        el.dispatchEvent(new CustomEvent(event, {
+            detail,
+            bubbles: true,
+            composed: true
+        }));
+
+        // Also dispatch to Livewire's global event bus if available
+        if (window.Livewire) {
+            const version = window.Livewire.version || "";
+            if (version.startsWith("2") || version.startsWith("1")) {
+                window.Livewire.emit(event, detail);
+            } else {
+                window.Livewire.dispatch(event, detail);
+            }
         }
     }
 
@@ -110,9 +121,22 @@
                 });
             });
 
+            map.on("zoom", () => {
+                dispatchToLivewire(el, "map:zoom", {
+                    zoom: map.getZoom(),
+                });
+            });
+
             map.on("zoomend", () => {
                 dispatchToLivewire(el, "map:zoom-changed", {
                     zoom: map.getZoom(),
+                });
+            });
+
+            map.on("move", () => {
+                dispatchToLivewire(el, "map:move", {
+                    lat: map.getCenter().lat,
+                    lng: map.getCenter().lng,
                 });
             });
 
@@ -136,6 +160,18 @@
                     lat: map.getCenter().lat,
                     lng: map.getCenter().lng,
                     zoom: map.getZoom(),
+                });
+            });
+
+            map.on("rotate", () => {
+                dispatchToLivewire(el, "map:bearing-changed", {
+                    bearing: map.getBearing(),
+                });
+            });
+
+            map.on("pitch", () => {
+                dispatchToLivewire(el, "map:pitch-changed", {
+                    pitch: map.getPitch(),
                 });
             });
 
@@ -750,7 +786,7 @@
                         if (
                             map.getSource(sourceId) &&
                             JSON.stringify(newConfig.coordinates) !==
-                                JSON.stringify(config.coordinates)
+                            JSON.stringify(config.coordinates)
                         ) {
                             map.getSource(sourceId).setData({
                                 type: "Feature",
@@ -939,7 +975,7 @@
                                             .setLngLat(coordinates)
                                             .setHTML(
                                                 properties[
-                                                    config.popupProperty
+                                                config.popupProperty
                                                 ],
                                             )
                                             .addTo(map);
