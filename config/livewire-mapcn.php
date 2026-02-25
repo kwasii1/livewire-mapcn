@@ -9,7 +9,7 @@ return [
     'cdn_css_url' => 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.x/dist/maplibre-gl.css',
     'carto_license' => 'non-commercial',
     'default_height' => 'full',
-    'default_zoom' => 13,
+    'default_zoom' => 7,
     'default_center' => [0, 0],
     'dark_provider' => 'carto-dark-matter',
     'osrm_url' => 'https://router.project-osrm.org',

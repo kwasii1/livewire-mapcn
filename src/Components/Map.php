@@ -9,7 +9,7 @@ class Map extends Component
 {
     public function __construct(
         public array $center = [0, 0],
-        public int $zoom = 13,
+        public ?int $zoom = null,
         public int $minZoom = 0,
         public int $maxZoom = 22,
         public ?string $provider = null,
