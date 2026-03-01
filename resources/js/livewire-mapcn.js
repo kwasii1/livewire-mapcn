@@ -3,11 +3,13 @@
 
     function dispatchToLivewire(el, event, detail) {
         // Always dispatch DOM event so Alpine.js can listen with @event
-        el.dispatchEvent(new CustomEvent(event, {
-            detail,
-            bubbles: true,
-            composed: true
-        }));
+        el.dispatchEvent(
+            new CustomEvent(event, {
+                detail,
+                bubbles: true,
+                composed: true,
+            }),
+        );
 
         // Also dispatch to Livewire's global event bus if available
         if (window.Livewire) {
@@ -20,12 +22,109 @@
         }
     }
 
+    // Debounce helper: delays execution until calls stop for `delay` ms
+    function debounce(fn, delay) {
+        let timer;
+        return function (...args) {
+            clearTimeout(timer);
+            timer = setTimeout(() => fn.apply(this, args), delay);
+        };
+    }
+
+    // Throttle helper: executes at most once every `limit` ms
+    function throttle(fn, limit) {
+        let inThrottle = false;
+        let lastArgs = null;
+        return function (...args) {
+            lastArgs = args;
+            if (!inThrottle) {
+                fn.apply(this, args);
+                inThrottle = true;
+                setTimeout(() => {
+                    inThrottle = false;
+                    if (lastArgs) {
+                        fn.apply(this, lastArgs);
+                        lastArgs = null;
+                    }
+                }, limit);
+            }
+        };
+    }
+
     function waitForMapLoad(map, callback) {
         if (map.isStyleLoaded()) {
             callback();
         } else {
             map.once("load", callback);
         }
+    }
+
+    /**
+     * Build styled HTML for a cluster point popup.
+     * Shows the primary property as a title, and any remaining
+     * properties as label/value rows underneath.
+     */
+    function buildClusterPopupHTML(properties, primaryProp) {
+        // Filter out internal MapLibre/cluster properties
+        const skipKeys = new Set([
+            "cluster",
+            "cluster_id",
+            "point_count",
+            "point_count_abbreviated",
+        ]);
+
+        const title = properties[primaryProp] || "";
+        const escHTML = (str) =>
+            String(str)
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;");
+        const formatLabel = (key) =>
+            key
+                .replace(/([A-Z])/g, " $1")
+                .replace(/[_-]/g, " ")
+                .replace(/\b\w/g, (c) => c.toUpperCase())
+                .trim();
+
+        let rows = "";
+        for (const [key, value] of Object.entries(properties)) {
+            if (
+                key === primaryProp ||
+                skipKeys.has(key) ||
+                value == null ||
+                value === ""
+            )
+                continue;
+            rows +=
+                `<div class="lm-popup-row">` +
+                `<span class="lm-popup-label">${escHTML(formatLabel(key))}</span>` +
+                `<span class="lm-popup-value">${escHTML(value)}</span>` +
+                `</div>`;
+        }
+
+        return (
+            `<div class="lm-cluster-popup">` +
+            (title
+                ? `<div class="lm-popup-title">${escHTML(title)}</div>`
+                : "") +
+            (rows ? `<div class="lm-popup-body">${rows}</div>` : "") +
+            `</div>`
+        );
+    }
+
+    /**
+     * Interpolate a user-supplied HTML template string.
+     * Replaces {propertyName} placeholders with actual feature property values.
+     * Supports {lat} and {lng} as special tokens for the point coordinates.
+     */
+    function interpolatePopupTemplate(template, properties, coordinates) {
+        return template.replace(/\{(\w+)\}/g, (match, key) => {
+            if (key === "lat") return coordinates[1];
+            if (key === "lng") return coordinates[0];
+            if (properties[key] != null) return properties[key];
+            return "";
+        });
     }
 
     function waitForMap(mapId, callback, maxRetries = 100) {
@@ -121,11 +220,13 @@
                 });
             });
 
-            map.on("zoom", () => {
+            // Throttle continuous events to prevent frame drops
+            const throttledZoom = throttle(() => {
                 dispatchToLivewire(el, "map:zoom", {
                     zoom: map.getZoom(),
                 });
-            });
+            }, 100);
+            map.on("zoom", throttledZoom);
 
             map.on("zoomend", () => {
                 dispatchToLivewire(el, "map:zoom-changed", {
@@ -133,12 +234,13 @@
                 });
             });
 
-            map.on("move", () => {
+            const throttledMove = throttle(() => {
                 dispatchToLivewire(el, "map:move", {
                     lat: map.getCenter().lat,
                     lng: map.getCenter().lng,
                 });
-            });
+            }, 100);
+            map.on("move", throttledMove);
 
             map.on("moveend", () => {
                 dispatchToLivewire(el, "map:center-changed", {
@@ -163,17 +265,19 @@
                 });
             });
 
-            map.on("rotate", () => {
+            const throttledRotate = throttle(() => {
                 dispatchToLivewire(el, "map:bearing-changed", {
                     bearing: map.getBearing(),
                 });
-            });
+            }, 100);
+            map.on("rotate", throttledRotate);
 
-            map.on("pitch", () => {
+            const throttledPitch = throttle(() => {
                 dispatchToLivewire(el, "map:pitch-changed", {
                     pitch: map.getPitch(),
                 });
-            });
+            }, 100);
+            map.on("pitch", throttledPitch);
 
             map.on("styledata", () => {
                 dispatchToLivewire(el, "map:style-loaded", {
@@ -425,6 +529,7 @@
                         const tooltip = new maplibregl.Popup({
                             closeButton: false,
                             closeOnClick: false,
+                            className: "lm-tooltip-popup",
                             anchor: tooltipConfig.anchor,
                             offset: tooltipConfig.offset,
                         }).setHTML(tooltipTemplate.innerHTML);
@@ -786,7 +891,7 @@
                         if (
                             map.getSource(sourceId) &&
                             JSON.stringify(newConfig.coordinates) !==
-                            JSON.stringify(config.coordinates)
+                                JSON.stringify(config.coordinates)
                         ) {
                             map.getSource(sourceId).setData({
                                 type: "Feature",
@@ -819,7 +924,18 @@
         Alpine.directive(
             "map-cluster-layer",
             (el, { expression }, { evaluate }) => {
-                const config = evaluate(expression);
+                // Read config and data from data attributes instead of
+                // Alpine expression evaluation to avoid re-parsing large
+                // JSON payloads on every reactive cycle.
+                const config = JSON.parse(el.dataset.clusterConfig || "{}");
+                const clusterData = config.url
+                    ? config.url
+                    : el._clusterData ||
+                      JSON.parse(el.dataset.clusterData || "{}");
+                // Free memory from the DOM attribute after parsing
+                delete el.dataset.clusterData;
+                delete el._clusterData;
+
                 const mapEl = el.closest("[x-map]");
                 if (!mapEl) return;
 
@@ -836,10 +952,18 @@
                         if (!map.getSource(sourceId)) {
                             map.addSource(sourceId, {
                                 type: "geojson",
-                                data: config.data,
+                                data: clusterData,
                                 cluster: true,
                                 clusterMaxZoom: config.clusterMaxZoom,
                                 clusterRadius: config.clusterRadius,
+                                // Performance: larger buffer reduces tile-edge
+                                // artefacts during panning at the cost of memory
+                                buffer: config.buffer || 256,
+                                // Performance: higher tolerance simplifies
+                                // geometries for faster tile generation
+                                tolerance: config.tolerance || 0.5,
+                                // Enable automatic feature IDs for efficient diffing
+                                generateId: true,
                             });
 
                             map.addLayer({
@@ -890,51 +1014,106 @@
                                 },
                             });
 
-                            map.on("click", `clusters-${config.id}`, (e) => {
-                                const features = map.queryRenderedFeatures(
-                                    e.point,
-                                    {
-                                        layers: [`clusters-${config.id}`],
-                                    },
+                            // Handle cluster click on both the circle and
+                            // the count label layers so clicks on the text
+                            // are not swallowed by the symbol layer.
+                            const clusterClickLayers = [
+                                `clusters-${config.id}`,
+                            ];
+                            if (config.showCount) {
+                                clusterClickLayers.push(
+                                    `cluster-count-${config.id}`,
                                 );
-                                const clusterId =
-                                    features[0].properties.cluster_id;
+                            }
 
-                                dispatchToLivewire(
-                                    mapEl,
-                                    "map:cluster-clicked",
-                                    {
-                                        cluster_id: clusterId,
-                                        lat: e.lngLat.lat,
-                                        lng: e.lngLat.lng,
-                                        count: features[0].properties
-                                            .point_count,
-                                    },
-                                );
+                            clusterClickLayers.forEach((layerId) => {
+                                map.on("click", layerId, (e) => {
+                                    // Prevent the click from propagating to the
+                                    // map or being handled twice when both layers
+                                    // overlap at the same point.
+                                    e.originalEvent.stopPropagation();
+                                    e._clusterHandled = true;
 
-                                if (config.clickZoom) {
-                                    map.getSource(
-                                        sourceId,
-                                    ).getClusterExpansionZoom(
-                                        clusterId,
-                                        (err, zoom) => {
-                                            if (err) return;
-                                            map.easeTo({
-                                                center: features[0].geometry
-                                                    .coordinates,
-                                                zoom: zoom,
-                                            });
-                                            dispatchToLivewire(
-                                                mapEl,
-                                                "map:cluster-expanded",
-                                                {
-                                                    cluster_id: clusterId,
-                                                    zoom: zoom,
-                                                },
-                                            );
+                                    const features = map.queryRenderedFeatures(
+                                        e.point,
+                                        {
+                                            layers: [`clusters-${config.id}`],
                                         },
                                     );
-                                }
+                                    if (!features.length) return;
+
+                                    const clusterId =
+                                        features[0].properties.cluster_id;
+
+                                    dispatchToLivewire(
+                                        mapEl,
+                                        "map:cluster-clicked",
+                                        {
+                                            cluster_id: clusterId,
+                                            lat: e.lngLat.lat,
+                                            lng: e.lngLat.lng,
+                                            count: features[0].properties
+                                                .point_count,
+                                        },
+                                    );
+
+                                    if (config.clickZoom) {
+                                        const source = map.getSource(sourceId);
+                                        const result =
+                                            source.getClusterExpansionZoom(
+                                                clusterId,
+                                            );
+
+                                        // MapLibre v3+ returns a Promise;
+                                        // older versions use a callback.
+                                        if (
+                                            result &&
+                                            typeof result.then === "function"
+                                        ) {
+                                            result
+                                                .then((zoom) => {
+                                                    map.easeTo({
+                                                        center: features[0]
+                                                            .geometry
+                                                            .coordinates,
+                                                        zoom: zoom,
+                                                    });
+                                                    dispatchToLivewire(
+                                                        mapEl,
+                                                        "map:cluster-expanded",
+                                                        {
+                                                            cluster_id:
+                                                                clusterId,
+                                                            zoom: zoom,
+                                                        },
+                                                    );
+                                                })
+                                                .catch(() => {});
+                                        } else {
+                                            source.getClusterExpansionZoom(
+                                                clusterId,
+                                                (err, zoom) => {
+                                                    if (err) return;
+                                                    map.easeTo({
+                                                        center: features[0]
+                                                            .geometry
+                                                            .coordinates,
+                                                        zoom: zoom,
+                                                    });
+                                                    dispatchToLivewire(
+                                                        mapEl,
+                                                        "map:cluster-expanded",
+                                                        {
+                                                            cluster_id:
+                                                                clusterId,
+                                                            zoom: zoom,
+                                                        },
+                                                    );
+                                                },
+                                            );
+                                        }
+                                    }
+                                });
                             });
 
                             map.on(
@@ -967,33 +1146,72 @@
                                         },
                                     );
 
-                                    if (
+                                    // Resolve popup template: slot > attribute > popupProperty > default
+                                    const slotTemplate = el.querySelector(
+                                        'template[x-ref="clusterPopup"]',
+                                    );
+                                    const popupHTML = slotTemplate
+                                        ? slotTemplate.innerHTML
+                                        : config.popupTemplate || null;
+
+                                    if (popupHTML) {
+                                        // Interpolate {property} placeholders
+                                        const html = interpolatePopupTemplate(
+                                            popupHTML,
+                                            properties,
+                                            coordinates,
+                                        );
+                                        new maplibregl.Popup({
+                                            maxWidth: "320px",
+                                        })
+                                            .setLngLat(coordinates)
+                                            .setHTML(html)
+                                            .addTo(map);
+                                    } else if (
                                         config.popupProperty &&
                                         properties[config.popupProperty]
                                     ) {
-                                        new maplibregl.Popup()
+                                        // Auto-generated styled popup from a primary property
+                                        new maplibregl.Popup({
+                                            maxWidth: "280px",
+                                        })
                                             .setLngLat(coordinates)
                                             .setHTML(
-                                                properties[
-                                                config.popupProperty
-                                                ],
+                                                buildClusterPopupHTML(
+                                                    properties,
+                                                    config.popupProperty,
+                                                ),
                                             )
                                             .addTo(map);
-                                    } else if (config.popupTemplate) {
-                                        // If popupTemplate is provided, we can dispatch an event to Livewire
-                                        // to render the template and return the HTML.
-                                        // For now, we just dispatch the event.
-                                        dispatchToLivewire(
-                                            mapEl,
-                                            "map:cluster-point-popup",
-                                            {
-                                                feature_id: e.features[0].id,
-                                                lat: coordinates[1],
-                                                lng: coordinates[0],
-                                                properties: properties,
-                                                template: config.popupTemplate,
-                                            },
-                                        );
+                                    } else {
+                                        // Default popup: show name (if available) + coordinates
+                                        const escHTML = (s) =>
+                                            String(s)
+                                                .replace(/&/g, "&amp;")
+                                                .replace(/</g, "&lt;")
+                                                .replace(/>/g, "&gt;");
+                                        const name =
+                                            properties.name ||
+                                            properties.title ||
+                                            properties.label ||
+                                            null;
+                                        const lat = coordinates[1].toFixed(6);
+                                        const lng = coordinates[0].toFixed(6);
+                                        const html =
+                                            `<div class="lm-cluster-popup">` +
+                                            (name
+                                                ? `<div class="lm-popup-title">${escHTML(name)}</div>`
+                                                : "") +
+                                            `<div class="lm-popup-body">` +
+                                            `<div class="lm-popup-row"><span class="lm-popup-label">Lat</span><span class="lm-popup-value">${lat}</span></div>` +
+                                            `<div class="lm-popup-row"><span class="lm-popup-label">Lng</span><span class="lm-popup-value">${lng}</span></div>` +
+                                            `</div></div>`;
+                                        new maplibregl.Popup({
+                                            maxWidth: "240px",
+                                        })
+                                            .setLngLat(coordinates)
+                                            .setHTML(html)
+                                            .addTo(map);
                                     }
                                 },
                             );
@@ -1028,18 +1246,36 @@
                             );
                         }
 
-                        Alpine.effect(() => {
-                            const newConfig = evaluate(expression);
-                            if (map.getSource(sourceId)) {
-                                map.getSource(sourceId).setData(newConfig.data);
-                            }
-                        });
+                        // Store ref for Livewire-driven data updates
+                        el._clusterSourceId = sourceId;
+                        el._clusterMapId = mapId;
                     };
 
                     waitForMapLoad(map, doInit);
                 };
 
                 waitForMap(mapId, initCluster);
+
+                // Listen for programmatic data updates via Livewire events
+                if (window.Livewire) {
+                    window.Livewire.on(
+                        `map:update-cluster-data-${config.id}`,
+                        (payload) => {
+                            const map =
+                                Alpine.store("livewire-mapcn").maps[mapId];
+                            const data = payload[0] || payload;
+                            if (
+                                map &&
+                                el._clusterSourceId &&
+                                map.getSource(el._clusterSourceId)
+                            ) {
+                                map.getSource(el._clusterSourceId).setData(
+                                    data,
+                                );
+                            }
+                        },
+                    );
+                }
 
                 el.addEventListener("livewire:navigating", () => {
                     const map = Alpine.store("livewire-mapcn").maps[mapId];

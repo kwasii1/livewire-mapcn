@@ -28,7 +28,6 @@ class MapPopup extends Component
      */
     public function render()
     {
-        // @phpstan-ignore-next-line
         return view('livewire-mapcn::components.popup');
     }
 }
