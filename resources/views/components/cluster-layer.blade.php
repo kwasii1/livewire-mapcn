@@ -4,6 +4,7 @@
     data-cluster-id="{{ $id }}"
     data-cluster-config="{{ json_encode([
         'id' => $id,
+        'url' => $url,
         'clusterMaxZoom' => $clusterMaxZoom,
         'clusterRadius' => $clusterRadius,
         'clusterMinPoints' => $clusterMinPoints,
@@ -19,10 +20,12 @@
         'buffer' => $buffer,
         'tolerance' => $tolerance,
     ]) }}"
+    @if(!$url)
     @if(count($geoJsonData['features'] ?? [])> $maxFeaturesToInline)
     x-init="$el._clusterData = {{ json_encode($geoJsonData) }}"
     @else
     data-cluster-data="{{ json_encode($geoJsonData) }}"
+    @endif
     @endif
     class="{{ $class }}">
     @if(isset($popup))

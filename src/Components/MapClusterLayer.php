@@ -11,8 +11,9 @@ class MapClusterLayer extends Component
     public array $geoJsonData;
 
     public function __construct(
-        public array $data,
+        public array $data = [],
         public ?string $id = null,
+        public ?string $url = null,
         public int $clusterMaxZoom = 14,
         public int $clusterRadius = 50,
         public int $clusterMinPoints = 2,
@@ -31,7 +32,7 @@ class MapClusterLayer extends Component
         public string $class = '',
     ) {
         $this->id = $id ?? Str::uuid()->toString();
-        $this->geoJsonData = GeoJSON::fromArray($data);
+        $this->geoJsonData = $this->url ? [] : GeoJSON::fromArray($data);
     }
 
     /**
@@ -39,7 +40,6 @@ class MapClusterLayer extends Component
      */
     public function render()
     {
-        // @phpstan-ignore-next-line
         return view('livewire-mapcn::components.cluster-layer');
     }
 }

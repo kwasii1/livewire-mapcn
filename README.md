@@ -301,32 +301,41 @@ Efficiently handle thousands of markers by clustering them.
 ### Usage
 
 ```blade
+{{-- From an array --}}
 <x-map-cluster-layer
     :data="$locations"
     cluster-color="#3b82f6"
     popup-property="name"
 />
+
+{{-- From a GeoJSON URL --}}
+<x-map-cluster-layer
+    url="https://maplibre.org/maplibre-gl-js/docs/assets/earthquakes.geojson"
+    cluster-color="#3b82f6"
+    popup-property="mag"
+/>
 ```
 
 ### Props
 
-| Prop                      | Type     | Default      | Description                                                                                   |
-| ------------------------- | -------- | ------------ | --------------------------------------------------------------------------------------------- |
-| `:data`                   | `array`  | **Required** | Array of `['lat' => ..., 'lng' => ..., 'properties' => [...]]` items or raw GeoJSON Features. |
-| `:cluster-max-zoom`       | `int`    | `14`         | Max zoom level to cluster at.                                                                 |
-| `:cluster-radius`         | `int`    | `50`         | Pixel radius to cluster points together.                                                      |
-| `:cluster-min-points`     | `int`    | `2`          | Minimum points to form a cluster.                                                             |
-| `cluster-color`           | `string` | `'#1A56DB'`  | Color of the cluster circle.                                                                  |
-| `cluster-text-color`      | `string` | `'#FFFFFF'`  | Color of the count text inside clusters.                                                      |
-| `point-color`             | `string` | `'#1A56DB'`  | Color of unclustered point circles.                                                           |
-| `:point-radius`           | `int`    | `6`          | Radius of unclustered point circles.                                                          |
-| `:show-count`             | `bool`   | `true`       | Show the point count inside clusters.                                                         |
-| `popup-property`          | `string` | `null`       | Feature property to use as the popup title (auto-styled).                                     |
-| `popup-template`          | `string` | `null`       | HTML string with `{property}` placeholders for custom popups.                                 |
-| `:click-zoom`             | `bool`   | `true`       | Zoom into a cluster when clicked.                                                             |
-| `:buffer`                 | `int`    | `256`        | GeoJSON source tile buffer size (higher = smoother panning).                                  |
-| `:tolerance`              | `float`  | `0.5`        | Geometry simplification tolerance (higher = faster tiles).                                    |
-| `:max-features-to-inline` | `int`    | `2000`       | Feature count threshold before switching to JS-based data injection.                          |
+| Prop                      | Type     | Default     | Description                                                                                   |
+| ------------------------- | -------- | ----------- | --------------------------------------------------------------------------------------------- |
+| `:data`                   | `array`  | `[]`        | Array of `['lat' => ..., 'lng' => ..., 'properties' => [...]]` items or raw GeoJSON Features. |
+| `url`                     | `string` | `null`      | URL to a GeoJSON file. MapLibre fetches it client-side. Use instead of `:data`.               |
+| `:cluster-max-zoom`       | `int`    | `14`        | Max zoom level to cluster at.                                                                 |
+| `:cluster-radius`         | `int`    | `50`        | Pixel radius to cluster points together.                                                      |
+| `:cluster-min-points`     | `int`    | `2`         | Minimum points to form a cluster.                                                             |
+| `cluster-color`           | `string` | `'#1A56DB'` | Color of the cluster circle.                                                                  |
+| `cluster-text-color`      | `string` | `'#FFFFFF'` | Color of the count text inside clusters.                                                      |
+| `point-color`             | `string` | `'#1A56DB'` | Color of unclustered point circles.                                                           |
+| `:point-radius`           | `int`    | `6`         | Radius of unclustered point circles.                                                          |
+| `:show-count`             | `bool`   | `true`      | Show the point count inside clusters.                                                         |
+| `popup-property`          | `string` | `null`      | Feature property to use as the popup title (auto-styled).                                     |
+| `popup-template`          | `string` | `null`      | HTML string with `{property}` placeholders for custom popups.                                 |
+| `:click-zoom`             | `bool`   | `true`      | Zoom into a cluster when clicked.                                                             |
+| `:buffer`                 | `int`    | `256`       | GeoJSON source tile buffer size (higher = smoother panning).                                  |
+| `:tolerance`              | `float`  | `0.5`       | Geometry simplification tolerance (higher = faster tiles).                                    |
+| `:max-features-to-inline` | `int`    | `2000`      | Feature count threshold before switching to JS-based data injection.                          |
 
 ### Popup Slot (Recommended)
 

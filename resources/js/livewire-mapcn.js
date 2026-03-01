@@ -928,9 +928,10 @@
                 // Alpine expression evaluation to avoid re-parsing large
                 // JSON payloads on every reactive cycle.
                 const config = JSON.parse(el.dataset.clusterConfig || "{}");
-                const clusterData =
-                    el._clusterData ||
-                    JSON.parse(el.dataset.clusterData || "{}");
+                const clusterData = config.url
+                    ? config.url
+                    : el._clusterData ||
+                      JSON.parse(el.dataset.clusterData || "{}");
                 // Free memory from the DOM attribute after parsing
                 delete el.dataset.clusterData;
                 delete el._clusterData;
