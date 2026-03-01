@@ -1,5 +1,5 @@
 <template x-ref="markerTooltip">
-    <div class="px-2 py-1 text-sm text-white bg-gray-900 rounded shadow-lg {{ $class }}">
+    <div class="lm-tooltip {{ $class }}">
         {{ $text }}
     </div>
 </template>

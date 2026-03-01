@@ -25,6 +25,9 @@ class MapClusterLayer extends Component
         public ?string $popupProperty = null,
         public ?string $popupTemplate = null,
         public bool $clickZoom = true,
+        public int $buffer = 256,
+        public float $tolerance = 0.5,
+        public int $maxFeaturesToInline = 2000,
         public string $class = '',
     ) {
         $this->id = $id ?? Str::uuid()->toString();

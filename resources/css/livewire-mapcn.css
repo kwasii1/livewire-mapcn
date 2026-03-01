@@ -42,3 +42,159 @@
     color: #f9fafb;
     background-color: #374151;
 }
+
+/* ── Cluster point popup ── */
+.lm-cluster-popup {
+    padding: 0.75rem 1rem;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    min-width: 140px;
+}
+
+.lm-popup-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+    color: #111827;
+    margin-bottom: 0.375rem;
+    padding-bottom: 0.375rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+
+.lm-popup-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+}
+
+.lm-popup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 0.75rem;
+}
+
+.lm-popup-label {
+    color: #6b7280;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+    white-space: nowrap;
+}
+
+.lm-popup-value {
+    color: #1f2937;
+    font-weight: 500;
+    text-align: right;
+    word-break: break-word;
+}
+
+/* Dark mode */
+.dark .lm-popup-title {
+    color: #f9fafb;
+    border-bottom-color: #374151;
+}
+
+.dark .lm-popup-label {
+    color: #9ca3af;
+}
+
+.dark .lm-popup-value {
+    color: #e5e7eb;
+}
+
+/* ── Marker tooltip ── */
+.lm-tooltip {
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.4;
+    color: #f9fafb;
+    background-color: #111827;
+    padding: 0.375rem 0.625rem;
+    border-radius: 0.375rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.15), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+    white-space: nowrap;
+    pointer-events: none;
+    max-width: 260px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Tooltip inherits maplibregl-popup, so strip its padding */
+.maplibregl-popup .lm-tooltip {
+    margin: 0;
+}
+
+.dark .lm-tooltip {
+    background-color: #e5e7eb;
+    color: #111827;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+}
+
+/* Hide the default popup tip arrow on tooltips */
+.lm-tooltip-popup .maplibregl-popup-tip {
+    border-top-color: #111827;
+}
+
+.dark .lm-tooltip-popup .maplibregl-popup-tip {
+    border-top-color: #e5e7eb;
+}
+
+/* ── Marker label ── */
+.lm-label {
+    position: absolute;
+    white-space: nowrap;
+    pointer-events: none;
+    font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    color: #1f2937;
+    background-color: rgba(255, 255, 255, 0.92);
+    padding: 0.1875rem 0.4375rem;
+    border-radius: 0.25rem;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1), 0 1px 2px rgba(0, 0, 0, 0.06);
+    border: 1px solid rgba(0, 0, 0, 0.06);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    max-width: 160px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Position variants */
+.lm-label--bottom {
+    top: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-top: 0.375rem;
+}
+
+.lm-label--top {
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    margin-bottom: 0.375rem;
+}
+
+.lm-label--left {
+    right: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-right: 0.375rem;
+}
+
+.lm-label--right {
+    left: 100%;
+    top: 50%;
+    transform: translateY(-50%);
+    margin-left: 0.375rem;
+}
+
+/* Dark mode */
+.dark .lm-label {
+    color: #f3f4f6;
+    background-color: rgba(31, 41, 55, 0.92);
+    border-color: rgba(255, 255, 255, 0.08);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25), 0 1px 2px rgba(0, 0, 0, 0.15);
+}
