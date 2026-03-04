@@ -2,6 +2,14 @@
 
 All notable changes to `livewire-mapcn` will be documented in this file.
 
+## v1.0.4 - 2026-03-04
+
+### What's Changed
+
+* feat: route-list positioning fix by @kwasii1 in https://github.com/kwasii1/livewire-mapcn/pull/6
+
+**Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.3...v1.0.4
+
 ## v1.0.3 - 2026-03-04
 
 ### What's Changed
