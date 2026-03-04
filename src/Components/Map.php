@@ -26,11 +26,16 @@ class Map extends Component
         public string $class = '',
         public ?string $lightStyle = null,
         public ?string $darkStyle = null,
+        public array $events = [],
     ) {
         $this->center = $center ?: config('livewire-mapcn.default_center', [0, 0]);
         $this->zoom = $zoom ?: config('livewire-mapcn.default_zoom', 13);
         $this->height = $height ?: config('livewire-mapcn.default_height', '400px');
         $this->provider = $provider ?: config('livewire-mapcn.default_provider', 'carto-voyager');
+        $this->events = array_values(array_unique(array_merge(
+            config('livewire-mapcn.custom_events', []),
+            $events,
+        )));
     }
 
     /**
