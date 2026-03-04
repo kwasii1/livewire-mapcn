@@ -11,6 +11,7 @@ use Kwasii\LivewireMapcn\Components\MapControls;
 use Kwasii\LivewireMapcn\Components\MapMarker;
 use Kwasii\LivewireMapcn\Components\MapPopup;
 use Kwasii\LivewireMapcn\Components\MapRoute;
+use Kwasii\LivewireMapcn\Components\MapRouteGroup;
 use Kwasii\LivewireMapcn\Components\MapRouteList;
 use Kwasii\LivewireMapcn\Components\MarkerContent;
 use Kwasii\LivewireMapcn\Components\MarkerLabel;
@@ -46,6 +47,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
         Blade::component('marker-tooltip', MarkerTooltip::class);
         Blade::component('map-popup', MapPopup::class);
         Blade::component('map-route', MapRoute::class);
+        Blade::component('map-route-group', MapRouteGroup::class);
         Blade::component('map-route-list', MapRouteList::class);
         Blade::component('map-cluster-layer', MapClusterLayer::class);
 
