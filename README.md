@@ -872,10 +872,4 @@ $geoJson = GeoJSON::fromArray([
 
 ---
 
-### CARTO Basemap Licensing
 
-CARTO Basemaps are free for non-commercial use and for CARTO grantees. Commercial deployments require a CARTO Enterprise licence. You can configure the license type via the `carto_license` config key. Alternatively, switch to `osm-raster` or provide your own tile URL at zero cost.
-
----
-
-_For detailed component examples, see [COMPONENTS_GUIDE.md](COMPONENTS_GUIDE.md)._
