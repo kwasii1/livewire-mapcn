@@ -15,6 +15,10 @@ class MapRouteList extends Component
         public bool $showTimeDiff = true,
         public string $position = 'top-left',
         public string $title = 'Routes',
+        public string $width = 'w-60',
+        public string $containerClass = '',
+        public string $headerClass = '',
+        public string $itemClass = '',
     ) {}
 
     /**
