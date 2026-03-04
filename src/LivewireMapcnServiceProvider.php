@@ -11,6 +11,7 @@ use Kwasii\LivewireMapcn\Components\MapControls;
 use Kwasii\LivewireMapcn\Components\MapMarker;
 use Kwasii\LivewireMapcn\Components\MapPopup;
 use Kwasii\LivewireMapcn\Components\MapRoute;
+use Kwasii\LivewireMapcn\Components\MapRouteGroup;
 use Kwasii\LivewireMapcn\Components\MapRouteList;
 use Kwasii\LivewireMapcn\Components\MarkerContent;
 use Kwasii\LivewireMapcn\Components\MarkerLabel;
@@ -46,6 +47,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
         Blade::component('marker-tooltip', MarkerTooltip::class);
         Blade::component('map-popup', MapPopup::class);
         Blade::component('map-route', MapRoute::class);
+        Blade::component('map-route-group', MapRouteGroup::class);
         Blade::component('map-route-list', MapRouteList::class);
         Blade::component('map-cluster-layer', MapClusterLayer::class);
 
@@ -58,8 +60,8 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
         });
 
         $this->publishes([
-            __DIR__.'/../resources/js' => public_path('vendor/livewire-mapcn'),
-            __DIR__.'/../resources/css' => public_path('vendor/livewire-mapcn'),
+            __DIR__ . '/../resources/js' => public_path('vendor/livewire-mapcn'),
+            __DIR__ . '/../resources/css' => public_path('vendor/livewire-mapcn'),
         ], 'livewire-mapcn-assets');
 
         $this->registerAssetRoutes();
@@ -69,7 +71,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
     {
         Route::get('/livewire-mapcn/livewire-mapcn.js', function () {
             return response(
-                file_get_contents(__DIR__.'/../resources/js/livewire-mapcn.js'),
+                file_get_contents(__DIR__ . '/../resources/js/livewire-mapcn.js'),
                 200,
                 ['Content-Type' => 'application/javascript']
             );
@@ -77,7 +79,7 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
 
         Route::get('/livewire-mapcn/livewire-mapcn.css', function () {
             return response(
-                file_get_contents(__DIR__.'/../resources/css/livewire-mapcn.css'),
+                file_get_contents(__DIR__ . '/../resources/css/livewire-mapcn.css'),
                 200,
                 ['Content-Type' => 'text/css']
             );

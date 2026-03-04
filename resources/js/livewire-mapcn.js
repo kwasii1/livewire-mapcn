@@ -794,6 +794,9 @@
             // Track all fetched route data for alternative swapping
             let allRoutes = [];
             let currentPrimaryIndex = 0;
+            // Maps each alt slot index to its current allRoutes index
+            // e.g. altSlotMapping[0] = 2 means alt layer 0 shows allRoutes[2]
+            let altSlotMapping = [];
             // Store Livewire listener cleanup function
             let unsubscribeUpdate = null;
             // Track the last set of waypoints used for OSRM fetching so the
@@ -880,10 +883,12 @@
                                 config.maxAlternatives,
                                 allRoutes.length - 1,
                             );
+                            altSlotMapping = [];
                             for (let i = 0; i < maxAlts; i++) {
                                 const altRoute = allRoutes[i + 1];
                                 const altSourceId = `route-alt-${config.id}-${i}`;
                                 const altLayerId = `route-alt-layer-${config.id}-${i}`;
+                                altSlotMapping.push(i + 1);
 
                                 altSourceIds.push(altSourceId);
                                 altLayerIds.push(altLayerId);
@@ -922,19 +927,19 @@
                                     const altIdx = i;
                                     map.on("click", altLayerId, (e) => {
                                         e.originalEvent.stopPropagation();
-                                        const clickedAltGlobalIndex =
-                                            altIdx +
-                                            (altIdx >= currentPrimaryIndex
-                                                ? 1
-                                                : 0);
-                                        const actualAltIndex =
-                                            currentPrimaryIndex > altIdx
-                                                ? altIdx
-                                                : altIdx + 1;
 
-                                        // Swap primary and alternative route data
+                                        // Resolve which allRoutes index this
+                                        // slot currently holds
+                                        const clickedRouteIndex =
+                                            altSlotMapping[altIdx];
+                                        if (
+                                            clickedRouteIndex ===
+                                            currentPrimaryIndex
+                                        )
+                                            return;
+
                                         const prevPrimary = currentPrimaryIndex;
-                                        currentPrimaryIndex = altIdx + 1;
+                                        currentPrimaryIndex = clickedRouteIndex;
 
                                         // Update primary layer source
                                         const newPrimaryRoute =
@@ -950,21 +955,22 @@
                                             },
                                         });
 
-                                        // Update all alternative layers
-                                        let altDataIndex = 0;
+                                        // Rebuild alt slot mapping and update
+                                        // all alternative layer sources
+                                        const newMapping = [];
+                                        let slotIdx = 0;
                                         for (
                                             let r = 0;
                                             r < allRoutes.length;
                                             r++
                                         ) {
-                                            if (
-                                                r === currentPrimaryIndex ||
-                                                altDataIndex >=
-                                                    altLayerIds.length
-                                            )
+                                            if (r === currentPrimaryIndex)
                                                 continue;
+                                            if (slotIdx >= altLayerIds.length)
+                                                break;
+                                            newMapping.push(r);
                                             const altSrc =
-                                                altSourceIds[altDataIndex];
+                                                altSourceIds[slotIdx];
                                             if (map.getSource(altSrc)) {
                                                 map.getSource(altSrc).setData({
                                                     type: "Feature",
@@ -978,8 +984,9 @@
                                                     },
                                                 });
                                             }
-                                            altDataIndex++;
+                                            slotIdx++;
                                         }
+                                        altSlotMapping = newMapping;
 
                                         dispatchToLivewire(
                                             mapEl,
@@ -1349,6 +1356,15 @@
                                                 }),
                                             );
                                             currentPrimaryIndex = 0;
+                                            // Reset slot mapping after re-fetch
+                                            altSlotMapping = [];
+                                            for (
+                                                let ai = 0;
+                                                ai < altSourceIds.length;
+                                                ai++
+                                            ) {
+                                                altSlotMapping.push(ai + 1);
+                                            }
 
                                             // Update alternative layers
                                             for (
@@ -1520,6 +1536,16 @@
                             newIdx < allRoutes.length
                         ) {
                             currentPrimaryIndex = newIdx;
+                            // Rebuild slot mapping to stay in sync
+                            const newMapping = [];
+                            let si = 0;
+                            for (let ri = 0; ri < allRoutes.length; ri++) {
+                                if (ri === currentPrimaryIndex) continue;
+                                if (si >= altSourceIds.length) break;
+                                newMapping.push(ri);
+                                si++;
+                            }
+                            altSlotMapping = newMapping;
                         }
                     };
                     window.addEventListener(
@@ -1962,6 +1988,9 @@
 
                 const groupSourceIds = [];
                 const groupLayerIds = [];
+                const groupStopLayerIds = [];
+                // Store resolved coordinates (after OSRM fetch if applicable)
+                const resolvedRoutes = [];
                 let selectedIdx =
                     typeof config.selectedRoute === "number"
                         ? config.selectedRoute
@@ -1972,17 +2001,95 @@
                     const map = Alpine.store("livewire-mapcn").maps[mapId];
                     if (!map) return;
 
-                    const doInit = () => {
-                        routes.forEach((route, index) => {
+                    const doInit = async () => {
+                        // Resolve coordinates for each route (fetch directions if needed)
+                        for (let index = 0; index < routes.length; index++) {
+                            const route = routes[index];
+                            let coordinates = route.coordinates || [];
+                            let distance = route.distance || null;
+                            let duration = route.duration || null;
+
+                            // Fetch directions if enabled (global or per-route)
+                            const shouldFetch =
+                                route.fetchDirections !== undefined
+                                    ? route.fetchDirections
+                                    : config.fetchDirections;
+                            const profile =
+                                route.directionsProfile ||
+                                config.directionsProfile ||
+                                "driving";
+                            const baseUrl =
+                                route.directionsUrl ||
+                                config.directionsUrl ||
+                                "https://router.project-osrm.org";
+
+                            if (shouldFetch && coordinates.length >= 2) {
+                                try {
+                                    const coordsString = coordinates
+                                        .map((c) => `${c[0]},${c[1]}`)
+                                        .join(";");
+                                    const url = `${baseUrl}/route/v1/${profile}/${coordsString}?geometries=geojson&overview=full`;
+                                    const response = await fetch(url);
+                                    const data = await response.json();
+
+                                    if (
+                                        data.code === "Ok" &&
+                                        data.routes.length > 0
+                                    ) {
+                                        coordinates =
+                                            data.routes[0].geometry.coordinates;
+                                        distance = data.routes[0].distance;
+                                        duration = data.routes[0].duration;
+                                    }
+                                } catch (error) {
+                                    console.warn(
+                                        `Route group: failed to fetch directions for route ${index}`,
+                                        error,
+                                    );
+                                }
+                            }
+
+                            resolvedRoutes.push({
+                                ...route,
+                                coordinates,
+                                distance,
+                                duration,
+                            });
+                        }
+
+                        // Dispatch event with resolved route data
+                        dispatchToLivewire(
+                            mapEl,
+                            "map:route-group-directions-ready",
+                            {
+                                groupId: config.id,
+                                routes: resolvedRoutes.map((r, i) => ({
+                                    id: r.id || `${config.id}-route-${i}`,
+                                    distance: r.distance,
+                                    duration: r.duration,
+                                })),
+                            },
+                        );
+
+                        // Now add layers for each route
+                        resolvedRoutes.forEach((route, index) => {
                             const routeId =
                                 route.id || `${config.id}-route-${index}`;
                             const srcId = `route-group-${config.id}-${index}`;
                             const lyrId = `route-group-layer-${config.id}-${index}`;
+                            const stopLyrId = `route-group-stops-${config.id}-${index}`;
 
                             groupSourceIds.push(srcId);
                             groupLayerIds.push(lyrId);
 
                             const isSelected = index === selectedIdx;
+
+                            // Determine styling
+                            const routeColor = route.color || "#1A56DB";
+                            const routeWidth = route.width || 4;
+                            const routeOpacity = route.opacity || 1.0;
+                            const routeDash =
+                                route.dashArray || config.dashArray || null;
 
                             map.addSource(srcId, {
                                 type: "geojson",
@@ -1991,10 +2098,30 @@
                                     properties: { routeId, index },
                                     geometry: {
                                         type: "LineString",
-                                        coordinates: route.coordinates || [],
+                                        coordinates: route.coordinates,
                                     },
                                 },
                             });
+
+                            const paintProps = {
+                                "line-color": isSelected
+                                    ? config.active
+                                        ? config.activeColor
+                                        : routeColor
+                                    : config.alternativeColor,
+                                "line-width": isSelected
+                                    ? config.active
+                                        ? config.activeWidth
+                                        : routeWidth
+                                    : config.alternativeWidth,
+                                "line-opacity": isSelected
+                                    ? routeOpacity
+                                    : config.alternativeOpacity,
+                            };
+
+                            if (routeDash) {
+                                paintProps["line-dasharray"] = routeDash;
+                            }
 
                             map.addLayer({
                                 id: lyrId,
@@ -2004,19 +2131,33 @@
                                     "line-join": config.lineJoin || "round",
                                     "line-cap": config.lineCap || "round",
                                 },
-                                paint: {
-                                    "line-color": isSelected
-                                        ? route.color || "#1A56DB"
-                                        : config.alternativeColor,
-                                    "line-width": isSelected
-                                        ? route.width || 4
-                                        : config.alternativeWidth,
-                                    "line-opacity": isSelected
-                                        ? route.opacity || 1.0
-                                        : config.alternativeOpacity,
-                                },
+                                paint: paintProps,
                             });
 
+                            // Add stop markers if enabled
+                            const showStops =
+                                route.withStops !== undefined
+                                    ? route.withStops
+                                    : config.withStops;
+                            if (showStops && route.coordinates.length > 0) {
+                                const stopColor =
+                                    route.stopColor || config.stopColor;
+                                map.addLayer({
+                                    id: stopLyrId,
+                                    type: "circle",
+                                    source: srcId,
+                                    paint: {
+                                        "circle-radius":
+                                            (routeWidth || 4) * 1.5,
+                                        "circle-color": stopColor,
+                                        "circle-stroke-width": 2,
+                                        "circle-stroke-color": "#ffffff",
+                                    },
+                                });
+                                groupStopLayerIds.push(stopLyrId);
+                            }
+
+                            // Click handler
                             if (config.clickable) {
                                 map.on("click", lyrId, (e) => {
                                     e.originalEvent.stopPropagation();
@@ -2024,7 +2165,7 @@
 
                                     const prevIdx = selectedIdx;
                                     const prevLyrId = groupLayerIds[prevIdx];
-                                    const prevRoute = routes[prevIdx];
+                                    const prevRoute = resolvedRoutes[prevIdx];
 
                                     // Revert previous primary to alternative styling
                                     if (map.getLayer(prevLyrId)) {
@@ -2050,17 +2191,21 @@
                                         map.setPaintProperty(
                                             lyrId,
                                             "line-color",
-                                            route.color || "#1A56DB",
+                                            config.active
+                                                ? config.activeColor
+                                                : routeColor,
                                         );
                                         map.setPaintProperty(
                                             lyrId,
                                             "line-width",
-                                            route.width || 4,
+                                            config.active
+                                                ? config.activeWidth
+                                                : routeWidth,
                                         );
                                         map.setPaintProperty(
                                             lyrId,
                                             "line-opacity",
-                                            route.opacity || 1.0,
+                                            routeOpacity,
                                         );
                                     }
 
@@ -2071,35 +2216,122 @@
                                         "map:route-group-selection-changed",
                                         {
                                             groupId: config.id,
-                                            selectedRouteId:
-                                                route.id ||
-                                                `${config.id}-route-${index}`,
+                                            selectedRouteId: routeId,
                                             selectedIndex: index,
                                             previousRouteId:
                                                 prevRoute.id ||
                                                 `${config.id}-route-${prevIdx}`,
                                             previousIndex: prevIdx,
+                                            distance: route.distance,
+                                            duration: route.duration,
                                         },
                                     );
                                 });
 
+                                // Hover effects
                                 map.on("mouseenter", lyrId, () => {
                                     map.getCanvas().style.cursor = "pointer";
+                                    if (
+                                        config.hoverColor &&
+                                        index === selectedIdx &&
+                                        !config.active
+                                    ) {
+                                        map.setPaintProperty(
+                                            lyrId,
+                                            "line-color",
+                                            config.hoverColor,
+                                        );
+                                    }
                                 });
                                 map.on("mouseleave", lyrId, () => {
                                     map.getCanvas().style.cursor = "";
+                                    if (
+                                        config.hoverColor &&
+                                        index === selectedIdx &&
+                                        !config.active
+                                    ) {
+                                        map.setPaintProperty(
+                                            lyrId,
+                                            "line-color",
+                                            routeColor,
+                                        );
+                                    }
                                 });
                             }
                         });
 
+                        // Animation for selected route
+                        if (config.animate && resolvedRoutes[selectedIdx]) {
+                            const store = Alpine.store("livewire-mapcn");
+                            if (!store.routeAnimations)
+                                store.routeAnimations = {};
+
+                            const allAnimCoords = [
+                                ...resolvedRoutes[selectedIdx].coordinates,
+                            ];
+                            const srcId = groupSourceIds[selectedIdx];
+                            let startTime = null;
+                            const duration = config.animateDuration || 2000;
+
+                            const animateLine = (timestamp) => {
+                                if (!startTime) startTime = timestamp;
+                                const progress = Math.min(
+                                    (timestamp - startTime) / duration,
+                                    1,
+                                );
+
+                                const n = Math.max(
+                                    2,
+                                    Math.ceil(progress * allAnimCoords.length),
+                                );
+                                const visibleCoords = allAnimCoords.slice(0, n);
+
+                                if (map.getSource(srcId)) {
+                                    map.getSource(srcId).setData({
+                                        type: "Feature",
+                                        properties: {},
+                                        geometry: {
+                                            type: "LineString",
+                                            coordinates: visibleCoords,
+                                        },
+                                    });
+                                }
+
+                                if (progress < 1) {
+                                    requestAnimationFrame(animateLine);
+                                } else {
+                                    if (map.getSource(srcId)) {
+                                        map.getSource(srcId).setData({
+                                            type: "Feature",
+                                            properties: {},
+                                            geometry: {
+                                                type: "LineString",
+                                                coordinates: allAnimCoords,
+                                            },
+                                        });
+                                    }
+                                    if (store.routeAnimations) {
+                                        delete store.routeAnimations[config.id];
+                                    }
+                                }
+                            };
+
+                            store.routeAnimations[config.id] = {
+                                fn: animateLine,
+                                duration,
+                            };
+                            requestAnimationFrame(animateLine);
+                        }
+
                         // Auto fit bounds to selected route
                         if (
                             config.fitBounds &&
-                            routes[selectedIdx] &&
-                            routes[selectedIdx].coordinates &&
-                            routes[selectedIdx].coordinates.length > 1
+                            resolvedRoutes[selectedIdx] &&
+                            resolvedRoutes[selectedIdx].coordinates &&
+                            resolvedRoutes[selectedIdx].coordinates.length > 1
                         ) {
-                            const coords = routes[selectedIdx].coordinates;
+                            const coords =
+                                resolvedRoutes[selectedIdx].coordinates;
                             const bounds = coords.reduce(
                                 (b, c) => b.extend(c),
                                 new maplibregl.LngLatBounds(
@@ -2132,7 +2364,7 @@
                                 if (
                                     newIdx !== selectedIdx &&
                                     newIdx >= 0 &&
-                                    newIdx < routes.length
+                                    newIdx < resolvedRoutes.length
                                 ) {
                                     const prevIdx = selectedIdx;
 
@@ -2156,17 +2388,21 @@
                                     }
 
                                     // Apply primary
-                                    const route = routes[newIdx];
+                                    const route = resolvedRoutes[newIdx];
                                     if (map.getLayer(groupLayerIds[newIdx])) {
                                         map.setPaintProperty(
                                             groupLayerIds[newIdx],
                                             "line-color",
-                                            route.color || "#1A56DB",
+                                            config.active
+                                                ? config.activeColor
+                                                : route.color || "#1A56DB",
                                         );
                                         map.setPaintProperty(
                                             groupLayerIds[newIdx],
                                             "line-width",
-                                            route.width || 4,
+                                            config.active
+                                                ? config.activeWidth
+                                                : route.width || 4,
                                         );
                                         map.setPaintProperty(
                                             groupLayerIds[newIdx],
@@ -2199,8 +2435,8 @@
                                             },
                                         });
                                         // Update local state
-                                        if (routes[i]) {
-                                            routes[i].coordinates =
+                                        if (resolvedRoutes[i]) {
+                                            resolvedRoutes[i].coordinates =
                                                 routeUpdate.coordinates;
                                         }
                                     }
@@ -2226,6 +2462,10 @@
                 el.addEventListener("livewire:navigating", () => {
                     const map = Alpine.store("livewire-mapcn").maps[mapId];
                     if (map) {
+                        // Clean up stop layers
+                        groupStopLayerIds.forEach((id) => {
+                            if (map.getLayer(id)) map.removeLayer(id);
+                        });
                         groupLayerIds.forEach((id) => {
                             if (map.getLayer(id)) map.removeLayer(id);
                         });
@@ -2236,6 +2476,11 @@
                     if (unsubscribeGroupUpdate) {
                         unsubscribeGroupUpdate();
                         unsubscribeGroupUpdate = null;
+                    }
+                    // Clean up animation ref
+                    const store = Alpine.store("livewire-mapcn");
+                    if (store.routeAnimations) {
+                        delete store.routeAnimations[config.id];
                     }
                 });
             },
