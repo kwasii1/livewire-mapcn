@@ -17,6 +17,20 @@ return [
 
     /*
     |--------------------------------------------------------------------------
+    | Custom MapLibre Events
+    |--------------------------------------------------------------------------
+    |
+    | An array of additional MapLibre event names to forward to Livewire on
+    | all maps. Each event will be dispatched as "map:{event-name}".
+    | Example: ['idle', 'sourcedata', 'error', 'terrain']
+    |
+    | Per-map overrides can be set via the `events` prop on <x-map>.
+    |
+    */
+    'custom_events' => [],
+
+    /*
+    |--------------------------------------------------------------------------
     | Asset Injection Method
     |--------------------------------------------------------------------------
     |

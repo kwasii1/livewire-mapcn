@@ -28,6 +28,11 @@ class MapRoute extends Component
         public bool $animate = false,
         public int $animateDuration = 2000,
         public bool $active = false,
+        public bool $alternatives = true,
+        public int $maxAlternatives = 2,
+        public string $alternativeColor = '#94A3B8',
+        public float $alternativeOpacity = 0.5,
+        public int $alternativeWidth = 3,
     ) {
         $this->id = $id ?? Str::uuid()->toString();
         $this->directionsUrl = $directionsUrl ?? config('livewire-mapcn.osrm_url', 'https://router.project-osrm.org');

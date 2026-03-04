@@ -20,5 +20,10 @@
         directionsUrl: '{{ $directionsUrl }}',
         animate: {{ $animate ? 'true' : 'false' }},
         animateDuration: {{ $animateDuration }},
-        active: {{ $active ? 'true' : 'false' }}
+        active: {{ $active ? 'true' : 'false' }},
+        alternatives: {{ $alternatives ? 'true' : 'false' }},
+        maxAlternatives: {{ $maxAlternatives }},
+        alternativeColor: '{{ $alternativeColor }}',
+        alternativeOpacity: {{ $alternativeOpacity }},
+        alternativeWidth: {{ $alternativeWidth }}
     }"></div>

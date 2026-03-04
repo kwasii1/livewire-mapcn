@@ -285,6 +285,64 @@
                 });
             });
 
+            // Custom event forwarding
+            // Events already handled by built-in listeners above
+            const builtInEvents = new Set([
+                "click",
+                "dblclick",
+                "contextmenu",
+                "zoom",
+                "zoomend",
+                "move",
+                "moveend",
+                "dragend",
+                "rotate",
+                "pitch",
+                "styledata",
+                "load",
+            ]);
+
+            /**
+             * Extract serialisable data from a MapLibre event object.
+             * Different event types carry different properties, so we
+             * pick what is available and safe to serialise.
+             */
+            function extractEventData(e) {
+                const out = {};
+                if (e.lngLat) {
+                    out.lat = e.lngLat.lat;
+                    out.lng = e.lngLat.lng;
+                }
+                if (e.point) out.point = e.point;
+                if (e.features) {
+                    out.features = e.features.map((f) => ({
+                        id: f.id,
+                        properties: f.properties,
+                        geometry: f.geometry,
+                    }));
+                }
+                if (e.dataType) out.dataType = e.dataType;
+                if (e.sourceId) out.sourceId = e.sourceId;
+                if (e.isSourceLoaded !== undefined)
+                    out.isSourceLoaded = e.isSourceLoaded;
+                if (e.style) out.style = true; // avoid serialising full style obj
+                if (e.error) out.error = String(e.error);
+                return out;
+            }
+
+            if (Array.isArray(config.customEvents)) {
+                config.customEvents.forEach((eventName) => {
+                    if (builtInEvents.has(eventName)) return;
+                    map.on(eventName, (e) => {
+                        dispatchToLivewire(
+                            el,
+                            `map:${eventName}`,
+                            extractEventData(e || {}),
+                        );
+                    });
+                });
+            }
+
             // Theme switching
             if (config.theme === "auto") {
                 const observer = new MutationObserver((mutations) => {
@@ -349,8 +407,30 @@
                 window.Livewire.on("map:force-animate", (data) => {
                     const payload = data[0] || data;
                     const routeId = payload.id;
-                    // Trigger animation for routeId
-                    // This is a placeholder for the actual animation logic
+                    const duration = payload.duration || 2000;
+                    // Retrieve stored animation refs from the Alpine store
+                    const store = Alpine.store("livewire-mapcn");
+                    if (
+                        store.routeAnimations &&
+                        store.routeAnimations[routeId]
+                    ) {
+                        const anim = store.routeAnimations[routeId];
+                        anim.startTime = null;
+                        if (duration) anim.duration = duration;
+                        requestAnimationFrame(anim.fn);
+                    }
+                });
+                window.Livewire.on("map:call", (data) => {
+                    const payload = data[0] || data;
+                    const method = payload.method;
+                    const args = payload.args || [];
+                    if (
+                        method &&
+                        typeof map[method] === "function" &&
+                        !method.startsWith("_")
+                    ) {
+                        map[method](...(Array.isArray(args) ? args : [args]));
+                    }
                 });
             }
 
@@ -708,6 +788,19 @@
             const mapConfig = evaluate(mapEl.getAttribute("x-map"));
             const mapId = mapConfig.id;
 
+            // Track alternative route layer/source IDs for cleanup
+            const altLayerIds = [];
+            const altSourceIds = [];
+            // Track all fetched route data for alternative swapping
+            let allRoutes = [];
+            let currentPrimaryIndex = 0;
+            // Store Livewire listener cleanup function
+            let unsubscribeUpdate = null;
+            // Track the last set of waypoints used for OSRM fetching so the
+            // Alpine.effect can detect when the user changes waypoints and
+            // re-fetch road geometry instead of drawing straight lines.
+            let lastWaypoints = JSON.stringify(config.coordinates);
+
             const initRoute = async () => {
                 const map = Alpine.store("livewire-mapcn").maps[mapId];
                 if (!map) return;
@@ -720,14 +813,39 @@
                             const coordsString = coordinates
                                 .map((c) => `${c[0]},${c[1]}`)
                                 .join(";");
-                            const response = await fetch(
-                                `${config.directionsUrl}/route/v1/${config.directionsProfile}/${coordsString}?geometries=geojson`,
-                            );
+                            let url = `${config.directionsUrl}/route/v1/${config.directionsProfile}/${coordsString}?geometries=geojson&overview=full`;
+                            if (config.alternatives) {
+                                url += "&alternatives=true";
+                            }
+                            const response = await fetch(url);
                             const data = await response.json();
 
                             if (data.code === "Ok" && data.routes.length > 0) {
                                 coordinates =
                                     data.routes[0].geometry.coordinates;
+
+                                // Mark that we have snapped to OSRM geometry
+                                // for this set of waypoints so the effect
+                                // knows not to overwrite with straight lines.
+                                lastWaypoints = JSON.stringify(
+                                    config.coordinates,
+                                );
+
+                                // Store all routes for alternative swapping
+                                allRoutes = data.routes.map((r) => ({
+                                    geometry: r.geometry,
+                                    distance: r.distance,
+                                    duration: r.duration,
+                                }));
+
+                                const alternatives = data.routes
+                                    .slice(1)
+                                    .map((r) => ({
+                                        geometry: r.geometry,
+                                        distance: r.distance,
+                                        duration: r.duration,
+                                    }));
+
                                 dispatchToLivewire(
                                     mapEl,
                                     "map:route-directions-ready",
@@ -736,6 +854,7 @@
                                         geometry: data.routes[0].geometry,
                                         distance: data.routes[0].distance,
                                         duration: data.routes[0].duration,
+                                        alternatives: alternatives,
                                     },
                                 );
                             }
@@ -755,6 +874,143 @@
                     const layerId = `route-layer-${config.id}`;
 
                     if (!map.getSource(sourceId)) {
+                        // --- Alternative route layers (rendered first so primary draws on top) ---
+                        if (config.alternatives && allRoutes.length > 1) {
+                            const maxAlts = Math.min(
+                                config.maxAlternatives,
+                                allRoutes.length - 1,
+                            );
+                            for (let i = 0; i < maxAlts; i++) {
+                                const altRoute = allRoutes[i + 1];
+                                const altSourceId = `route-alt-${config.id}-${i}`;
+                                const altLayerId = `route-alt-layer-${config.id}-${i}`;
+
+                                altSourceIds.push(altSourceId);
+                                altLayerIds.push(altLayerId);
+
+                                map.addSource(altSourceId, {
+                                    type: "geojson",
+                                    data: {
+                                        type: "Feature",
+                                        properties: {},
+                                        geometry: {
+                                            type: "LineString",
+                                            coordinates:
+                                                altRoute.geometry.coordinates,
+                                        },
+                                    },
+                                });
+
+                                map.addLayer({
+                                    id: altLayerId,
+                                    type: "line",
+                                    source: altSourceId,
+                                    layout: {
+                                        "line-join": config.lineJoin,
+                                        "line-cap": config.lineCap,
+                                    },
+                                    paint: {
+                                        "line-color": config.alternativeColor,
+                                        "line-width": config.alternativeWidth,
+                                        "line-opacity":
+                                            config.alternativeOpacity,
+                                    },
+                                });
+
+                                // Click to swap alternative with primary
+                                if (config.clickable) {
+                                    const altIdx = i;
+                                    map.on("click", altLayerId, (e) => {
+                                        e.originalEvent.stopPropagation();
+                                        const clickedAltGlobalIndex =
+                                            altIdx +
+                                            (altIdx >= currentPrimaryIndex
+                                                ? 1
+                                                : 0);
+                                        const actualAltIndex =
+                                            currentPrimaryIndex > altIdx
+                                                ? altIdx
+                                                : altIdx + 1;
+
+                                        // Swap primary and alternative route data
+                                        const prevPrimary = currentPrimaryIndex;
+                                        currentPrimaryIndex = altIdx + 1;
+
+                                        // Update primary layer source
+                                        const newPrimaryRoute =
+                                            allRoutes[currentPrimaryIndex];
+                                        map.getSource(sourceId).setData({
+                                            type: "Feature",
+                                            properties: {},
+                                            geometry: {
+                                                type: "LineString",
+                                                coordinates:
+                                                    newPrimaryRoute.geometry
+                                                        .coordinates,
+                                            },
+                                        });
+
+                                        // Update all alternative layers
+                                        let altDataIndex = 0;
+                                        for (
+                                            let r = 0;
+                                            r < allRoutes.length;
+                                            r++
+                                        ) {
+                                            if (
+                                                r === currentPrimaryIndex ||
+                                                altDataIndex >=
+                                                    altLayerIds.length
+                                            )
+                                                continue;
+                                            const altSrc =
+                                                altSourceIds[altDataIndex];
+                                            if (map.getSource(altSrc)) {
+                                                map.getSource(altSrc).setData({
+                                                    type: "Feature",
+                                                    properties: {},
+                                                    geometry: {
+                                                        type: "LineString",
+                                                        coordinates:
+                                                            allRoutes[r]
+                                                                .geometry
+                                                                .coordinates,
+                                                    },
+                                                });
+                                            }
+                                            altDataIndex++;
+                                        }
+
+                                        dispatchToLivewire(
+                                            mapEl,
+                                            "map:route-alternative-selected",
+                                            {
+                                                id: config.id,
+                                                alternativeIndex:
+                                                    currentPrimaryIndex,
+                                                previousIndex: prevPrimary,
+                                                geometry:
+                                                    newPrimaryRoute.geometry,
+                                                distance:
+                                                    newPrimaryRoute.distance,
+                                                duration:
+                                                    newPrimaryRoute.duration,
+                                            },
+                                        );
+                                    });
+
+                                    map.on("mouseenter", altLayerId, () => {
+                                        map.getCanvas().style.cursor =
+                                            "pointer";
+                                    });
+                                    map.on("mouseleave", altLayerId, () => {
+                                        map.getCanvas().style.cursor = "";
+                                    });
+                                }
+                            }
+                        }
+
+                        // --- Primary route layer ---
                         map.addSource(sourceId, {
                             type: "geojson",
                             data: {
@@ -804,20 +1060,73 @@
                         }
 
                         if (config.animate) {
-                            let startTime;
+                            // Initialise the animation store if needed
+                            const store = Alpine.store("livewire-mapcn");
+                            if (!store.routeAnimations)
+                                store.routeAnimations = {};
+
+                            // Growing-line animation: gradually reveal the
+                            // route from start to end by slicing the coordinate
+                            // list. Works correctly with OSRM road geometry
+                            // (many fine-grained points) for a smooth draw.
+                            const allAnimCoords = [...coordinates];
+                            let startTime = null;
                             const duration = config.animateDuration;
+
                             const animateLine = (timestamp) => {
                                 if (!startTime) startTime = timestamp;
-                                const progress =
-                                    (timestamp - startTime) / duration;
+                                const progress = Math.min(
+                                    (timestamp - startTime) / duration,
+                                    1,
+                                );
+
+                                // Show the first `n` coordinates, growing
+                                // from 2 (minimum for a LineString) to all.
+                                const n = Math.max(
+                                    2,
+                                    Math.ceil(progress * allAnimCoords.length),
+                                );
+                                const visibleCoords = allAnimCoords.slice(0, n);
+
+                                if (map.getSource(sourceId)) {
+                                    map.getSource(sourceId).setData({
+                                        type: "Feature",
+                                        properties: {},
+                                        geometry: {
+                                            type: "LineString",
+                                            coordinates: visibleCoords,
+                                        },
+                                    });
+                                }
 
                                 if (progress < 1) {
-                                    // Simple animation by updating dasharray
-                                    // A more robust way would be to slice the coordinates array
-                                    // but this is a basic implementation
                                     requestAnimationFrame(animateLine);
+                                } else {
+                                    // Ensure the full line is visible when done
+                                    if (map.getSource(sourceId)) {
+                                        map.getSource(sourceId).setData({
+                                            type: "Feature",
+                                            properties: {},
+                                            geometry: {
+                                                type: "LineString",
+                                                coordinates: allAnimCoords,
+                                            },
+                                        });
+                                    }
+                                    if (store.routeAnimations) {
+                                        delete store.routeAnimations[config.id];
+                                    }
                                 }
                             };
+
+                            // Store the animation ref so map:force-animate
+                            // can re-trigger
+                            const animRef = {
+                                fn: animateLine,
+                                duration: duration,
+                            };
+                            store.routeAnimations[config.id] = animRef;
+
                             requestAnimationFrame(animateLine);
                         }
 
@@ -868,6 +1177,7 @@
                         }
                     }
 
+                    // Reactive paint property updates via Alpine
                     Alpine.effect(() => {
                         const newConfig = evaluate(expression);
                         if (map.getLayer(layerId)) {
@@ -887,22 +1197,336 @@
                             );
                         }
 
-                        // Update coordinates if changed (simplified, ideally should re-fetch directions if needed)
+                        const newWaypointsStr = JSON.stringify(
+                            newConfig.coordinates,
+                        );
                         if (
                             map.getSource(sourceId) &&
-                            JSON.stringify(newConfig.coordinates) !==
-                                JSON.stringify(config.coordinates)
+                            newWaypointsStr !== lastWaypoints
                         ) {
-                            map.getSource(sourceId).setData({
-                                type: "Feature",
-                                properties: {},
-                                geometry: {
-                                    type: "LineString",
-                                    coordinates: newConfig.coordinates,
-                                },
-                            });
+                            lastWaypoints = newWaypointsStr;
+
+                            if (newConfig.fetchDirections) {
+                                // Waypoints changed — re-fetch road geometry
+                                // from OSRM so the route stays snapped to
+                                // actual roads instead of drawing a straight
+                                // line between the new waypoints.
+                                const coordsStr = newConfig.coordinates
+                                    .map((c) => `${c[0]},${c[1]}`)
+                                    .join(";");
+                                let osrmUrl = `${newConfig.directionsUrl}/route/v1/${newConfig.directionsProfile}/${coordsStr}?geometries=geojson&overview=full`;
+                                if (newConfig.alternatives) {
+                                    osrmUrl += "&alternatives=true";
+                                }
+                                fetch(osrmUrl)
+                                    .then((r) => r.json())
+                                    .then((data) => {
+                                        if (
+                                            data.code === "Ok" &&
+                                            data.routes.length > 0
+                                        ) {
+                                            if (map.getSource(sourceId)) {
+                                                map.getSource(sourceId).setData(
+                                                    {
+                                                        type: "Feature",
+                                                        properties: {},
+                                                        geometry: {
+                                                            type: "LineString",
+                                                            coordinates:
+                                                                data.routes[0]
+                                                                    .geometry
+                                                                    .coordinates,
+                                                        },
+                                                    },
+                                                );
+                                            }
+                                            // Update stored routes for
+                                            // alternative swapping
+                                            allRoutes = data.routes.map(
+                                                (r) => ({
+                                                    geometry: r.geometry,
+                                                    distance: r.distance,
+                                                    duration: r.duration,
+                                                }),
+                                            );
+                                            currentPrimaryIndex = 0;
+                                            dispatchToLivewire(
+                                                mapEl,
+                                                "map:route-directions-ready",
+                                                {
+                                                    id: config.id,
+                                                    geometry:
+                                                        data.routes[0].geometry,
+                                                    distance:
+                                                        data.routes[0].distance,
+                                                    duration:
+                                                        data.routes[0].duration,
+                                                    alternatives: data.routes
+                                                        .slice(1)
+                                                        .map((r) => ({
+                                                            geometry:
+                                                                r.geometry,
+                                                            distance:
+                                                                r.distance,
+                                                            duration:
+                                                                r.duration,
+                                                        })),
+                                                },
+                                            );
+                                        }
+                                    })
+                                    .catch((err) => {
+                                        dispatchToLivewire(
+                                            mapEl,
+                                            "map:route-directions-error",
+                                            {
+                                                id: config.id,
+                                                message: err.message,
+                                            },
+                                        );
+                                    });
+                            } else {
+                                // No directions fetch — just update source
+                                // with the new raw coordinates.
+                                map.getSource(sourceId).setData({
+                                    type: "Feature",
+                                    properties: {},
+                                    geometry: {
+                                        type: "LineString",
+                                        coordinates: newConfig.coordinates,
+                                    },
+                                });
+                            }
                         }
                     });
+
+                    // --- Livewire inbound event: map:update-route-data-{id} ---
+                    if (window.Livewire) {
+                        unsubscribeUpdate = window.Livewire.on(
+                            `map:update-route-data-${config.id}`,
+                            async (data) => {
+                                const payload = data[0] || data;
+                                const currentMap =
+                                    Alpine.store("livewire-mapcn").maps[mapId];
+                                if (!currentMap) return;
+
+                                let newCoords = payload.coordinates;
+
+                                // Re-fetch directions if requested or if originally configured
+                                if (
+                                    newCoords &&
+                                    newCoords.length >= 2 &&
+                                    (payload.fetchDirections ||
+                                        config.fetchDirections)
+                                ) {
+                                    try {
+                                        const profile =
+                                            payload.directionsProfile ||
+                                            config.directionsProfile;
+                                        const coordsString = newCoords
+                                            .map((c) => `${c[0]},${c[1]}`)
+                                            .join(";");
+                                        let url = `${config.directionsUrl}/route/v1/${profile}/${coordsString}?geometries=geojson&overview=full`;
+                                        if (config.alternatives) {
+                                            url += "&alternatives=true";
+                                        }
+                                        const response = await fetch(url);
+                                        const dirData = await response.json();
+                                        if (
+                                            dirData.code === "Ok" &&
+                                            dirData.routes.length > 0
+                                        ) {
+                                            newCoords =
+                                                dirData.routes[0].geometry
+                                                    .coordinates;
+
+                                            // Update alternative routes
+                                            allRoutes = dirData.routes.map(
+                                                (r) => ({
+                                                    geometry: r.geometry,
+                                                    distance: r.distance,
+                                                    duration: r.duration,
+                                                }),
+                                            );
+                                            currentPrimaryIndex = 0;
+
+                                            // Update alternative layers
+                                            for (
+                                                let i = 0;
+                                                i < altSourceIds.length;
+                                                i++
+                                            ) {
+                                                if (
+                                                    allRoutes[i + 1] &&
+                                                    currentMap.getSource(
+                                                        altSourceIds[i],
+                                                    )
+                                                ) {
+                                                    currentMap
+                                                        .getSource(
+                                                            altSourceIds[i],
+                                                        )
+                                                        .setData({
+                                                            type: "Feature",
+                                                            properties: {},
+                                                            geometry: {
+                                                                type: "LineString",
+                                                                coordinates:
+                                                                    allRoutes[
+                                                                        i + 1
+                                                                    ].geometry
+                                                                        .coordinates,
+                                                            },
+                                                        });
+                                                }
+                                            }
+
+                                            const alternatives = dirData.routes
+                                                .slice(1)
+                                                .map((r) => ({
+                                                    geometry: r.geometry,
+                                                    distance: r.distance,
+                                                    duration: r.duration,
+                                                }));
+
+                                            dispatchToLivewire(
+                                                mapEl,
+                                                "map:route-directions-ready",
+                                                {
+                                                    id: config.id,
+                                                    geometry:
+                                                        dirData.routes[0]
+                                                            .geometry,
+                                                    distance:
+                                                        dirData.routes[0]
+                                                            .distance,
+                                                    duration:
+                                                        dirData.routes[0]
+                                                            .duration,
+                                                    alternatives: alternatives,
+                                                },
+                                            );
+                                        }
+                                    } catch (error) {
+                                        dispatchToLivewire(
+                                            mapEl,
+                                            "map:route-directions-error",
+                                            {
+                                                id: config.id,
+                                                message: error.message,
+                                            },
+                                        );
+                                    }
+                                }
+
+                                // Update source coordinates
+                                if (
+                                    newCoords &&
+                                    currentMap.getSource(sourceId)
+                                ) {
+                                    currentMap.getSource(sourceId).setData({
+                                        type: "Feature",
+                                        properties: {},
+                                        geometry: {
+                                            type: "LineString",
+                                            coordinates: newCoords,
+                                        },
+                                    });
+                                }
+
+                                // Update paint properties if provided
+                                if (currentMap.getLayer(layerId)) {
+                                    if (payload.color !== undefined) {
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-color",
+                                            payload.active
+                                                ? payload.activeColor ||
+                                                      config.activeColor
+                                                : payload.color,
+                                        );
+                                    }
+                                    if (payload.width !== undefined) {
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-width",
+                                            payload.active
+                                                ? payload.activeWidth ||
+                                                      config.activeWidth
+                                                : payload.width,
+                                        );
+                                    }
+                                    if (payload.opacity !== undefined) {
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-opacity",
+                                            payload.opacity,
+                                        );
+                                    }
+                                    if (payload.active !== undefined) {
+                                        const color =
+                                            payload.color || config.color;
+                                        const activeColor =
+                                            payload.activeColor ||
+                                            config.activeColor;
+                                        const width =
+                                            payload.width || config.width;
+                                        const activeWidth =
+                                            payload.activeWidth ||
+                                            config.activeWidth;
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-color",
+                                            payload.active
+                                                ? activeColor
+                                                : color,
+                                        );
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-width",
+                                            payload.active
+                                                ? activeWidth
+                                                : width,
+                                        );
+                                    }
+                                    if (payload.dashArray !== undefined) {
+                                        currentMap.setPaintProperty(
+                                            layerId,
+                                            "line-dasharray",
+                                            payload.dashArray,
+                                        );
+                                    }
+                                }
+
+                                dispatchToLivewire(mapEl, "map:route-updated", {
+                                    id: config.id,
+                                });
+                            },
+                        );
+                    }
+
+                    // --- Listen for route-list panel selections ---
+                    // When the <x-map-route-list> component selects a
+                    // route, it updates the map sources directly but
+                    // this directive's currentPrimaryIndex must stay in
+                    // sync so subsequent alt-click swaps work correctly.
+                    const handleRouteListSelected = (e) => {
+                        const detail = e.detail;
+                        if (detail.routeId !== config.id) return;
+                        const newIdx = detail.selectedIndex;
+                        if (
+                            newIdx !== currentPrimaryIndex &&
+                            newIdx >= 0 &&
+                            newIdx < allRoutes.length
+                        ) {
+                            currentPrimaryIndex = newIdx;
+                        }
+                    };
+                    window.addEventListener(
+                        "map:route-list-selected",
+                        handleRouteListSelected,
+                    );
+                    el._routeListHandler = handleRouteListSelected;
                 };
 
                 waitForMapLoad(map, doInit);
@@ -913,10 +1537,39 @@
             el.addEventListener("livewire:navigating", () => {
                 const map = Alpine.store("livewire-mapcn").maps[mapId];
                 if (map) {
+                    // Clean up alternative layers
+                    altLayerIds.forEach((id) => {
+                        if (map.getLayer(id)) map.removeLayer(id);
+                    });
+                    altSourceIds.forEach((id) => {
+                        if (map.getSource(id)) map.removeSource(id);
+                    });
+                    // Clean up stops layer
+                    if (map.getLayer(`route-stops-${config.id}`))
+                        map.removeLayer(`route-stops-${config.id}`);
+                    // Clean up primary route
                     if (map.getLayer(`route-layer-${config.id}`))
                         map.removeLayer(`route-layer-${config.id}`);
                     if (map.getSource(`route-${config.id}`))
                         map.removeSource(`route-${config.id}`);
+                }
+                // Unsubscribe Livewire listener
+                if (unsubscribeUpdate) {
+                    unsubscribeUpdate();
+                    unsubscribeUpdate = null;
+                }
+                // Clean up route-list listener
+                if (el._routeListHandler) {
+                    window.removeEventListener(
+                        "map:route-list-selected",
+                        el._routeListHandler,
+                    );
+                    el._routeListHandler = null;
+                }
+                // Clean up animation ref
+                const store = Alpine.store("livewire-mapcn");
+                if (store.routeAnimations) {
+                    delete store.routeAnimations[config.id];
                 }
             });
         });
@@ -1292,6 +1945,536 @@
                 });
             },
         );
+
+        Alpine.directive(
+            "map-route-group",
+            (el, { expression }, { evaluate }) => {
+                const config = JSON.parse(el.dataset.routeGroupConfig || "{}");
+                const routes = JSON.parse(el.dataset.routeGroupRoutes || "[]");
+                // Free memory from DOM after parsing
+                delete el.dataset.routeGroupRoutes;
+
+                const mapEl = el.closest("[x-map]");
+                if (!mapEl) return;
+
+                const mapConfig = evaluate(mapEl.getAttribute("x-map"));
+                const mapId = mapConfig.id;
+
+                const groupSourceIds = [];
+                const groupLayerIds = [];
+                let selectedIdx =
+                    typeof config.selectedRoute === "number"
+                        ? config.selectedRoute
+                        : 0;
+                let unsubscribeGroupUpdate = null;
+
+                const initRouteGroup = () => {
+                    const map = Alpine.store("livewire-mapcn").maps[mapId];
+                    if (!map) return;
+
+                    const doInit = () => {
+                        routes.forEach((route, index) => {
+                            const routeId =
+                                route.id || `${config.id}-route-${index}`;
+                            const srcId = `route-group-${config.id}-${index}`;
+                            const lyrId = `route-group-layer-${config.id}-${index}`;
+
+                            groupSourceIds.push(srcId);
+                            groupLayerIds.push(lyrId);
+
+                            const isSelected = index === selectedIdx;
+
+                            map.addSource(srcId, {
+                                type: "geojson",
+                                data: {
+                                    type: "Feature",
+                                    properties: { routeId, index },
+                                    geometry: {
+                                        type: "LineString",
+                                        coordinates: route.coordinates || [],
+                                    },
+                                },
+                            });
+
+                            map.addLayer({
+                                id: lyrId,
+                                type: "line",
+                                source: srcId,
+                                layout: {
+                                    "line-join": config.lineJoin || "round",
+                                    "line-cap": config.lineCap || "round",
+                                },
+                                paint: {
+                                    "line-color": isSelected
+                                        ? route.color || "#1A56DB"
+                                        : config.alternativeColor,
+                                    "line-width": isSelected
+                                        ? route.width || 4
+                                        : config.alternativeWidth,
+                                    "line-opacity": isSelected
+                                        ? route.opacity || 1.0
+                                        : config.alternativeOpacity,
+                                },
+                            });
+
+                            if (config.clickable) {
+                                map.on("click", lyrId, (e) => {
+                                    e.originalEvent.stopPropagation();
+                                    if (index === selectedIdx) return;
+
+                                    const prevIdx = selectedIdx;
+                                    const prevLyrId = groupLayerIds[prevIdx];
+                                    const prevRoute = routes[prevIdx];
+
+                                    // Revert previous primary to alternative styling
+                                    if (map.getLayer(prevLyrId)) {
+                                        map.setPaintProperty(
+                                            prevLyrId,
+                                            "line-color",
+                                            config.alternativeColor,
+                                        );
+                                        map.setPaintProperty(
+                                            prevLyrId,
+                                            "line-width",
+                                            config.alternativeWidth,
+                                        );
+                                        map.setPaintProperty(
+                                            prevLyrId,
+                                            "line-opacity",
+                                            config.alternativeOpacity,
+                                        );
+                                    }
+
+                                    // Apply primary styling to clicked route
+                                    if (map.getLayer(lyrId)) {
+                                        map.setPaintProperty(
+                                            lyrId,
+                                            "line-color",
+                                            route.color || "#1A56DB",
+                                        );
+                                        map.setPaintProperty(
+                                            lyrId,
+                                            "line-width",
+                                            route.width || 4,
+                                        );
+                                        map.setPaintProperty(
+                                            lyrId,
+                                            "line-opacity",
+                                            route.opacity || 1.0,
+                                        );
+                                    }
+
+                                    selectedIdx = index;
+
+                                    dispatchToLivewire(
+                                        mapEl,
+                                        "map:route-group-selection-changed",
+                                        {
+                                            groupId: config.id,
+                                            selectedRouteId:
+                                                route.id ||
+                                                `${config.id}-route-${index}`,
+                                            selectedIndex: index,
+                                            previousRouteId:
+                                                prevRoute.id ||
+                                                `${config.id}-route-${prevIdx}`,
+                                            previousIndex: prevIdx,
+                                        },
+                                    );
+                                });
+
+                                map.on("mouseenter", lyrId, () => {
+                                    map.getCanvas().style.cursor = "pointer";
+                                });
+                                map.on("mouseleave", lyrId, () => {
+                                    map.getCanvas().style.cursor = "";
+                                });
+                            }
+                        });
+
+                        // Auto fit bounds to selected route
+                        if (
+                            config.fitBounds &&
+                            routes[selectedIdx] &&
+                            routes[selectedIdx].coordinates &&
+                            routes[selectedIdx].coordinates.length > 1
+                        ) {
+                            const coords = routes[selectedIdx].coordinates;
+                            const bounds = coords.reduce(
+                                (b, c) => b.extend(c),
+                                new maplibregl.LngLatBounds(
+                                    coords[0],
+                                    coords[0],
+                                ),
+                            );
+                            map.fitBounds(bounds, { padding: 50 });
+                        }
+                    };
+
+                    waitForMapLoad(map, doInit);
+                };
+
+                waitForMap(mapId, initRouteGroup);
+
+                // Livewire inbound: update route group data or selection
+                if (window.Livewire) {
+                    unsubscribeGroupUpdate = window.Livewire.on(
+                        `map:update-route-group-${config.id}`,
+                        (data) => {
+                            const payload = data[0] || data;
+                            const map =
+                                Alpine.store("livewire-mapcn").maps[mapId];
+                            if (!map) return;
+
+                            // Update selected route
+                            if (payload.selectedRoute !== undefined) {
+                                const newIdx = payload.selectedRoute;
+                                if (
+                                    newIdx !== selectedIdx &&
+                                    newIdx >= 0 &&
+                                    newIdx < routes.length
+                                ) {
+                                    const prevIdx = selectedIdx;
+
+                                    // Revert previous
+                                    if (map.getLayer(groupLayerIds[prevIdx])) {
+                                        map.setPaintProperty(
+                                            groupLayerIds[prevIdx],
+                                            "line-color",
+                                            config.alternativeColor,
+                                        );
+                                        map.setPaintProperty(
+                                            groupLayerIds[prevIdx],
+                                            "line-width",
+                                            config.alternativeWidth,
+                                        );
+                                        map.setPaintProperty(
+                                            groupLayerIds[prevIdx],
+                                            "line-opacity",
+                                            config.alternativeOpacity,
+                                        );
+                                    }
+
+                                    // Apply primary
+                                    const route = routes[newIdx];
+                                    if (map.getLayer(groupLayerIds[newIdx])) {
+                                        map.setPaintProperty(
+                                            groupLayerIds[newIdx],
+                                            "line-color",
+                                            route.color || "#1A56DB",
+                                        );
+                                        map.setPaintProperty(
+                                            groupLayerIds[newIdx],
+                                            "line-width",
+                                            route.width || 4,
+                                        );
+                                        map.setPaintProperty(
+                                            groupLayerIds[newIdx],
+                                            "line-opacity",
+                                            route.opacity || 1.0,
+                                        );
+                                    }
+
+                                    selectedIdx = newIdx;
+                                }
+                            }
+
+                            // Update route coordinates
+                            if (payload.routes) {
+                                payload.routes.forEach((routeUpdate, i) => {
+                                    if (
+                                        routeUpdate.coordinates &&
+                                        groupSourceIds[i] &&
+                                        map.getSource(groupSourceIds[i])
+                                    ) {
+                                        map.getSource(
+                                            groupSourceIds[i],
+                                        ).setData({
+                                            type: "Feature",
+                                            properties: {},
+                                            geometry: {
+                                                type: "LineString",
+                                                coordinates:
+                                                    routeUpdate.coordinates,
+                                            },
+                                        });
+                                        // Update local state
+                                        if (routes[i]) {
+                                            routes[i].coordinates =
+                                                routeUpdate.coordinates;
+                                        }
+                                    }
+
+                                    // Update styling
+                                    if (
+                                        routeUpdate.color &&
+                                        i === selectedIdx &&
+                                        map.getLayer(groupLayerIds[i])
+                                    ) {
+                                        map.setPaintProperty(
+                                            groupLayerIds[i],
+                                            "line-color",
+                                            routeUpdate.color,
+                                        );
+                                    }
+                                });
+                            }
+                        },
+                    );
+                }
+
+                el.addEventListener("livewire:navigating", () => {
+                    const map = Alpine.store("livewire-mapcn").maps[mapId];
+                    if (map) {
+                        groupLayerIds.forEach((id) => {
+                            if (map.getLayer(id)) map.removeLayer(id);
+                        });
+                        groupSourceIds.forEach((id) => {
+                            if (map.getSource(id)) map.removeSource(id);
+                        });
+                    }
+                    if (unsubscribeGroupUpdate) {
+                        unsubscribeGroupUpdate();
+                        unsubscribeGroupUpdate = null;
+                    }
+                });
+            },
+        );
+
+        Alpine.directive(
+            "map-route-list",
+            (el, { expression }, { evaluate, cleanup }) => {
+                const config = evaluate(expression);
+                const routeId = config.routeId;
+
+                // Auto-resolve map ID: use explicit mapId, or find the
+                // nearest ancestor [x-map] element, or find the map
+                // element that contains the matching route element.
+                let mapId = config.mapId;
+                if (!mapId) {
+                    // Try closest ancestor
+                    const ancestorMap = el.closest("[x-map]");
+                    if (ancestorMap) {
+                        const ancestorConfig = evaluate(
+                            ancestorMap.getAttribute("x-map"),
+                        );
+                        mapId = ancestorConfig.id;
+                    }
+                }
+                if (!mapId) {
+                    // Try finding the route element's parent map
+                    const routeEl = document.querySelector(
+                        `[x-map-route*="'${routeId}'"], [x-map-route*='"${routeId}"']`,
+                    );
+                    if (routeEl) {
+                        const routeMapEl = routeEl.closest("[x-map]");
+                        if (routeMapEl) {
+                            const routeMapConfig = evaluate(
+                                routeMapEl.getAttribute("x-map"),
+                            );
+                            mapId = routeMapConfig.id;
+                        }
+                    }
+                }
+                if (!mapId) {
+                    // Last resort: use first registered map
+                    const maps = Alpine.store("livewire-mapcn").maps;
+                    const ids = Object.keys(maps);
+                    if (ids.length === 1) mapId = ids[0];
+                }
+
+                // Reactive state exposed to the template as `_rl`
+                const state = Alpine.reactive({
+                    routes: [],
+                    selectedIndex: 0,
+                    showDistance: config.showDistance,
+                    showDuration: config.showDuration,
+                    showFastestBadge: config.showFastestBadge,
+                    showTimeDiff: config.showTimeDiff,
+                    title: config.title || "Routes",
+
+                    get fastestIndex() {
+                        if (!this.routes.length) return 0;
+                        let minDuration = Infinity;
+                        let minIdx = 0;
+                        this.routes.forEach((r, i) => {
+                            if (r.duration < minDuration) {
+                                minDuration = r.duration;
+                                minIdx = i;
+                            }
+                        });
+                        return minIdx;
+                    },
+
+                    formatDistance(meters) {
+                        if (meters >= 1000)
+                            return (meters / 1000).toFixed(1) + " km";
+                        return Math.round(meters) + " m";
+                    },
+
+                    formatDuration(seconds) {
+                        const mins = Math.round(seconds / 60);
+                        if (mins < 60) return mins + " min";
+                        const hrs = Math.floor(mins / 60);
+                        const rem = mins % 60;
+                        return hrs + "h " + rem + "min";
+                    },
+
+                    timeDiff(index) {
+                        if (!this.routes.length) return null;
+                        const fastest = this.routes[this.fastestIndex];
+                        if (!fastest) return null;
+                        const diff = Math.round(
+                            (this.routes[index].duration - fastest.duration) /
+                                60,
+                        );
+                        if (diff <= 0) return null;
+                        return "+" + diff + " min";
+                    },
+
+                    selectRoute(index) {
+                        if (index === this.selectedIndex || !this.routes.length)
+                            return;
+
+                        const map =
+                            Alpine.store("livewire-mapcn")?.maps?.[mapId];
+                        if (!map) return;
+
+                        const sourceId = "route-" + routeId;
+                        const newPrimary = this.routes[index];
+
+                        // Update primary route source
+                        if (map.getSource(sourceId)) {
+                            map.getSource(sourceId).setData({
+                                type: "Feature",
+                                properties: {},
+                                geometry: {
+                                    type: "LineString",
+                                    coordinates:
+                                        newPrimary.geometry.coordinates,
+                                },
+                            });
+                        }
+
+                        // Update alternative route sources
+                        let altIdx = 0;
+                        for (let i = 0; i < this.routes.length; i++) {
+                            if (i === index) continue;
+                            const altSrc =
+                                "route-alt-" + routeId + "-" + altIdx;
+                            if (map.getSource(altSrc)) {
+                                map.getSource(altSrc).setData({
+                                    type: "Feature",
+                                    properties: {},
+                                    geometry: {
+                                        type: "LineString",
+                                        coordinates:
+                                            this.routes[i].geometry.coordinates,
+                                    },
+                                });
+                            }
+                            altIdx++;
+                        }
+
+                        const prevIndex = this.selectedIndex;
+                        this.selectedIndex = index;
+
+                        dispatchToLivewire(el, "map:route-list-selected", {
+                            routeId: routeId,
+                            selectedIndex: index,
+                            previousIndex: prevIndex,
+                            distance: newPrimary.distance,
+                            duration: newPrimary.duration,
+                        });
+                    },
+                });
+
+                // Expose state to Alpine template scope
+                Alpine.addScopeToNode(el, { _rl: state });
+
+                // Listen for directions-ready events (bubbles from the
+                // x-map-route element up through the DOM)
+                const handleReady = (e) => {
+                    const detail = e.detail;
+                    if (detail.id !== routeId) return;
+
+                    // Lazy map ID resolution: if we still don't have
+                    // a mapId, resolve it now that the route has fired
+                    if (!mapId) {
+                        const routeEl = document.querySelector(
+                            `[x-map-route*="'${routeId}'"], [x-map-route*='"${routeId}"']`,
+                        );
+                        if (routeEl) {
+                            const routeMapEl = routeEl.closest("[x-map]");
+                            if (routeMapEl) {
+                                try {
+                                    const mc = evaluate(
+                                        routeMapEl.getAttribute("x-map"),
+                                    );
+                                    mapId = mc.id;
+                                } catch (_) {}
+                            }
+                        }
+                        if (!mapId) {
+                            const maps = Alpine.store("livewire-mapcn").maps;
+                            const ids = Object.keys(maps).filter(
+                                (k) => maps[k],
+                            );
+                            if (ids.length === 1) mapId = ids[0];
+                        }
+                    }
+
+                    const primary = {
+                        geometry: detail.geometry,
+                        distance: detail.distance,
+                        duration: detail.duration,
+                    };
+                    const alts = (detail.alternatives || []).map((a) => ({
+                        geometry: a.geometry,
+                        distance: a.distance,
+                        duration: a.duration,
+                    }));
+                    state.routes = [primary, ...alts];
+                    state.selectedIndex = 0;
+
+                    // Show the element now that we have routes
+                    el.style.display = "";
+                };
+
+                // Also sync when a route is selected on the map layer
+                const handleAltSelected = (e) => {
+                    const detail = e.detail;
+                    if (detail.id !== routeId) return;
+                    const newIdx = detail.alternativeIndex ?? 0;
+                    if (newIdx !== state.selectedIndex) {
+                        state.selectedIndex = newIdx;
+                    }
+                };
+
+                // Use window-level listeners because the route-list element
+                // may not be a descendant of the map element.
+                window.addEventListener(
+                    "map:route-directions-ready",
+                    handleReady,
+                );
+                window.addEventListener(
+                    "map:route-alternative-selected",
+                    handleAltSelected,
+                );
+
+                cleanup(() => {
+                    window.removeEventListener(
+                        "map:route-directions-ready",
+                        handleReady,
+                    );
+                    window.removeEventListener(
+                        "map:route-alternative-selected",
+                        handleAltSelected,
+                    );
+                });
+            },
+        );
+
         Alpine.directive("map-resize", (el, { expression }, { evaluate }) => {
             const mapEl = el.closest("[x-map]");
             if (!mapEl) return;

@@ -16,7 +16,8 @@
         interactive: {{ $interactive ? 'true' : 'false' }},
         scrollZoom: {{ $scrollZoom ? 'true' : 'false' }},
         doubleClickZoom: {{ $doubleClickZoom ? 'true' : 'false' }},
-        dragPan: {{ $dragPan ? 'true' : 'false' }}
+        dragPan: {{ $dragPan ? 'true' : 'false' }},
+        customEvents: {{ json_encode($events) }}
     }"
     style="height: {{ $height }}; width: {{ $width }};"
     {{ $attributes->merge(['class' => 'relative overflow-hidden ' . $class]) }}>
