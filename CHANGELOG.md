@@ -2,6 +2,14 @@
 
 All notable changes to `livewire-mapcn` will be documented in this file.
 
+## v1.0.5 - 2026-05-02
+
+### What's Changed
+
+* feat: agent skills and guidelines for laravel boost by @kwasii1 in https://github.com/kwasii1/livewire-mapcn/pull/10
+
+**Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.4...v1.0.5
+
 ## v1.0.4 - 2026-03-04
 
 ### What's Changed
