@@ -50,7 +50,7 @@ default => 'top-4 left-4',
                         </div>
                         <div class="flex flex-col items-end gap-0.5">
                             <span x-show="_rl.showFastestBadge && index === _rl.fastestIndex"
-                                class="text-[10px] font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">
+                                class="text-xs font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">
                                 Fastest
                             </span>
                             <span x-show="_rl.showTimeDiff && _rl.timeDiff(index)"

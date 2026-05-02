@@ -2,6 +2,7 @@
 
 namespace Kwasii\LivewireMapcn\Components;
 
+use Illuminate\Contracts\View\View;
 use Illuminate\View\Component;
 
 class MapRouteList extends Component
@@ -22,7 +23,7 @@ class MapRouteList extends Component
     ) {}
 
     /**
-     * @return \Illuminate\Contracts\View\View
+     * @return View
      */
     public function render()
     {
