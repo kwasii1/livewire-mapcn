@@ -191,6 +191,8 @@
             Alpine.store("livewire-mapcn").maps[mapId] = map;
 
             map.on("load", () => {
+                // Re-affirm after load so the store entry is always the live instance
+                Alpine.store("livewire-mapcn").maps[mapId] = map;
                 dispatchToLivewire(el, "map:loaded", {
                     center: map.getCenter(),
                     zoom: map.getZoom(),
@@ -439,7 +441,9 @@
                 if (el._themeObserver) el._themeObserver.disconnect();
                 if (el._resizeObserver) el._resizeObserver.disconnect();
                 map.remove();
-                delete Alpine.store("livewire-mapcn").maps[mapId];
+                // Null out the entry rather than deleting it so polling consumers
+                // know the slot exists but the instance is not yet ready
+                Alpine.store("livewire-mapcn").maps[mapId] = null;
             });
         });
 
@@ -2740,8 +2744,69 @@
         });
     }
 
-    // Expose the plugin globally
-    window.LivewireMapPlugin = LivewireMapPlugin;
+/**
+ * Wait for a map instance to be fully loaded and registered in the Alpine store.
+ * Works correctly across wire:navigate soft navigations.
+ *
+ * @param {string|null} mapId  - The map ID, or null to use the first registered map
+ * @param {function}    callback - Called with the live MapLibre Map instance
+ * @param {number}      timeout  - Max ms to wait before giving up (default 10000)
+ */
+function waitForMapReady(mapId, callback, timeout = 10000) {
+    const started = Date.now();
+
+    const poll = () => {
+        const store = window.Alpine?.store('livewire-mapcn');
+        if (!store?.maps) {
+            if (Date.now() - started < timeout) setTimeout(poll, 50);
+            return;
+        }
+
+        const id = mapId || Object.keys(store.maps)[0];
+        if (!id) {
+            if (Date.now() - started < timeout) setTimeout(poll, 50);
+            return;
+        }
+
+        const map = store.maps[id];
+
+        // Only resolve with a live MapLibre instance, never a null placeholder
+        if (map && typeof map.getCenter === 'function') {
+            // Also wait for style to be loaded so layers can be added immediately
+            if (map.isStyleLoaded()) {
+                callback(map);
+            } else {
+                map.once('load', () => callback(map));
+            }
+            return;
+        }
+
+        if (Date.now() - started < timeout) {
+            // Not ready yet — listen for map:loaded on any x-map element
+            // so we wake up immediately rather than burning CPU on polling
+            const mapEl = document.querySelector('[x-map]');
+            if (mapEl) {
+                const onLoaded = () => {
+                    mapEl.removeEventListener('map:loaded', onLoaded);
+                    poll();
+                };
+                mapEl.addEventListener('map:loaded', onLoaded);
+            } else {
+                setTimeout(poll, 50);
+            }
+        } else {
+            console.warn('LivewireMap: waitForMapReady timed out waiting for map', mapId);
+        }
+    };
+
+    poll();
+}
+
+// Expose the plugin and public utilities globally
+window.LivewireMapPlugin = LivewireMapPlugin;
+window.LivewireMap = {
+    waitForMap: waitForMapReady,
+};
 
     // Auto-register with Alpine
     if (typeof window !== "undefined" && window.Alpine) {
