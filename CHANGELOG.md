@@ -2,6 +2,10 @@
 
 All notable changes to `livewire-mapcn` will be documented in this file.
 
+## v1.0.8 - 2026-05-25
+
+**Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.7...v1.0.8
+
 ## v1.0.7 - 2026-05-19
 
 **Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.6...v1.0.7
