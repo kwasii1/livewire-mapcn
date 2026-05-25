@@ -287,6 +287,12 @@
                 });
             });
 
+            // map.on("style.load", () => {
+            //     dispatchToLivewire(el, "map:style-reloaded", {
+            //         style: map.getStyle(),
+            //     });
+            // });
+
             // Custom event forwarding
             // Events already handled by built-in listeners above
             const builtInEvents = new Set([
@@ -301,6 +307,7 @@
                 "rotate",
                 "pitch",
                 "styledata",
+                // "style.load",
                 "load",
             ]);
 
@@ -401,7 +408,27 @@
                     map.setPitch((data[0] || data).pitch);
                 });
                 window.Livewire.on("map:set-style", (data) => {
-                    map.setStyle((data[0] || data).style);
+                    const style = (data[0] || data).style;
+
+                    // Cancel any previously scheduled reload dispatch
+                    if (el._styleReloadHandler) {
+                        map.off("idle", el._styleReloadHandler);
+                        el._styleReloadHandler = null;
+                    }
+
+                    // Set a flag so styledata knows a swap is in progress
+                    el._styleChangePending = true;
+
+                    map.setStyle(style);
+
+                    el._styleReloadHandler = () => {
+                        if (!el._styleChangePending) return;
+                        el._styleChangePending = false;
+                        el._styleReloadHandler = null;
+                        dispatchToLivewire(el, "map:style-reloaded", {});
+                    };
+
+                    map.once("idle", el._styleReloadHandler);
                 });
                 window.Livewire.on("map:resize", () => {
                     map.resize();
