@@ -2,6 +2,14 @@
 
 All notable changes to `livewire-mapcn` will be documented in this file.
 
+## v1.0.9 - 2026-05-26
+
+### What's Changed
+
+* feat: add disable popup prop feature by @kwasii1 in https://github.com/kwasii1/livewire-mapcn/pull/11
+
+**Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.8...v1.0.9
+
 ## v1.0.8 - 2026-05-25
 
 **Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.7...v1.0.8
