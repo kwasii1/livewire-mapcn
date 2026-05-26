@@ -19,6 +19,7 @@
         'clickZoom' => $clickZoom,
         'buffer' => $buffer,
         'tolerance' => $tolerance,
+        'disablePopup' => $disablePopup,
     ]) }}"
     @if(!$url)
     @if(count($geoJsonData['features'] ?? [])> $maxFeaturesToInline)

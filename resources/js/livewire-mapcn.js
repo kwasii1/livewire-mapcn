@@ -1856,6 +1856,8 @@
                                         },
                                     );
 
+                                    if (config.disablePopup) return;
+
                                     // Resolve popup template: slot > attribute > popupProperty > default
                                     const slotTemplate = el.querySelector(
                                         'template[x-ref="clusterPopup"]',
