@@ -29,6 +29,7 @@ class MapClusterLayer extends Component
         public bool $clickZoom = true,
         public int $buffer = 256,
         public float $tolerance = 0.5,
+        public bool $disablePopup = false,
         public int $maxFeaturesToInline = 2000,
         public string $class = '',
     ) {
