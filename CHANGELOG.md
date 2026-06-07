@@ -2,6 +2,14 @@
 
 All notable changes to `livewire-mapcn` will be documented in this file.
 
+## v1.1.0 - 2026-06-07
+
+### What's Changed
+
+* laravel 13 support by @kwasii1 in https://github.com/kwasii1/livewire-mapcn/pull/12
+
+**Full Changelog**: https://github.com/kwasii1/livewire-mapcn/compare/v1.0.9...v1.1.0
+
 ## v1.0.9 - 2026-05-26
 
 ### What's Changed
