@@ -1,6 +1,6 @@
 ---
 name: livewire-mapcn-development
-description: Build and work with livewire-mapcn map components, including markers, popups, routes, clusters, and reactive Livewire map interactions.
+description: Build and work with livewire-mapcn map components, including markers, popups, routes with progress, arcs, GeoJSON overlays, clusters, 3D view/custom controls, and reactive Livewire map interactions.
 ---
 
 # livewire-mapcn Development
@@ -9,7 +9,9 @@ description: Build and work with livewire-mapcn map components, including marker
 
 Use this skill when:
 - Adding interactive maps to a Laravel Livewire page or component
-- Working with markers, popups, tooltips, route lines, or cluster layers
+- Working with markers, popups, tooltips, route lines, arcs, GeoJSON overlays, or cluster layers
+- Showing route progress (deliveries, trips), flight/trade arcs, or region polygons
+- Adding a 3D view toggle or custom map controls
 - Displaying directions or animated routes on a map
 - Building reactive UI that responds to map events (clicks, drags, pans, zooms)
 - Dynamically updating map data without a full Livewire re-render
@@ -17,7 +19,9 @@ Use this skill when:
 
 ## Package Overview
 
-`kwasii/livewire-mapcn` provides MapLibre GL JS-powered Blade components that integrate natively with Livewire's reactivity system. It also requires **Alpine.js** and **Tailwind CSS** to be present in the project.
+`kwasii/livewire-mapcn` provides MapLibre GL JS-powered Blade components that integrate natively with Livewire's reactivity system. Alpine.js ships with Livewire; Tailwind is **not** required (the package CSS styles everything). MapLibre GL JS v6 (ESM-only) is imported by `@livewireMapScripts` and exposed as `window.maplibregl`.
+
+Components inside `<x-map>` are reactive: when the Livewire component re-renders, markers, routes, arcs, GeoJSON and clusters update in place (the map uses `wire:ignore.self`, so the camera is kept). Use `wire:key` in loops. Never wrap `<x-map>` in `wire:ignore`.
 
 > **Critical: Coordinate order is `[lng, lat]`** — longitude first, latitude second. This matches MapLibre GL JS conventions, not the typical `[lat, lng]` order you may expect.
 
@@ -45,7 +49,8 @@ Assets are automatically served via package routes — publishing is not require
 
 ```
 <x-map>                         ← root, required, wraps everything
-  <x-map-controls />            ← navigation, locate, fullscreen, scale
+  <x-map-controls />            ← navigation, locate, fullscreen, scale, 3D toggle
+  <x-map-control>               ← custom control markup (use $map inside)
   <x-map-marker>                ← marker at [lat, lng]
     <x-marker-content />        ← fully custom HTML marker icon
     <x-marker-label />          ← text label near marker
@@ -54,7 +59,11 @@ Assets are automatically served via package routes — publishing is not require
   </x-map-marker>
   <x-map-popup />               ← standalone popup at fixed coords
   <x-map-cluster-layer />       ← clustered GeoJSON point layer
-  <x-map-route />               ← single polyline / OSRM route
+  <x-map-route>                 ← single polyline / OSRM route (+ progress)
+    <x-map-route-marker />      ← marker at start / end / progress / fraction
+  </x-map-route>
+  <x-map-arc />                 ← curved connections between point pairs
+  <x-map-geojson />             ← polygons / lines / points from GeoJSON
   <x-map-route-group />         ← multiple selectable routes
   <x-map-route-list />          ← route selection UI panel (overlaid)
 </x-map>
@@ -74,11 +83,12 @@ Assets are automatically served via package routes — publishing is not require
 | `osrm_url` | `'https://router.project-osrm.org'` | OSRM routing server |
 | `inject_assets` | `'route'` | `'route'` or `'published'` |
 | `load_from_cdn` | `true` | Load MapLibre from CDN |
-| `maplibre_version` | `'5.19.0'` | MapLibre GL JS version |
-| `cdn_url` | CDN URL | Override to self-host JS |
-| `cdn_css_url` | CDN URL | Override to self-host CSS |
-| `carto_license` | `'non-commercial'` | Or `'enterprise'` for commercial use |
-| `cluster_popup_view` | `null` | Blade view for cluster popups |
+| `maplibre_version` | `'6.14.0'` | MapLibre GL JS version |
+| `cdn_url` | `null` | MapLibre JS URL; `.mjs` loads as ES module, else classic script (e.g. v5 UMD) |
+| `cdn_css_url` | `null` | MapLibre CSS URL (derived from version when null) |
+| `follow_system_theme` | `false` | With `theme="auto"`, also follow `prefers-color-scheme` |
+| `carto_license` | `'non-commercial'` | Informational only |
+| `cluster_popup_view` | `null` | Blade view used as the default cluster popup (`{property}` placeholders) |
 | `custom_events` | `[]` | Global extra MapLibre events to forward as `map:*` |
 
 ## Built-in Tile Providers
@@ -88,9 +98,13 @@ Assets are automatically served via package routes — publishing is not require
 | `carto-positron` | Minimal light (default) |
 | `carto-voyager` | Light with road detail |
 | `carto-dark-matter` | Dark |
+| `openfreemap-liberty` | OpenFreeMap with 3D buildings (pair with `:pitch`) |
+| `openfreemap-bright` | OpenFreeMap bright |
+| `openfreemap-positron` | OpenFreeMap positron |
 | `osm-raster` | OpenStreetMap raster tiles |
+| `blank` | No basemap (GeoJSON-only maps); same as the `blank` prop |
 
-Pass a full MapLibre style JSON URL to the `style` prop to use a custom tile source instead.
+Pass a full MapLibre style JSON URL (or a style array) to the `style` prop to use a custom tile source instead; it applies to both themes unless `dark-style` is set.
 
 ## Common Patterns
 
@@ -403,7 +417,87 @@ public function onMapClick(float $lat, float $lng): void
 />
 ```
 
-`theme="auto"` reads the `.dark` class on `<html>`. Use `theme="light"` or `theme="dark"` to force a mode. Provide `light-style` and `dark-style` props for separate style URLs per theme.
+`theme="auto"` reads a `dark`/`light` class or `data-theme` on `<html>` (and `prefers-color-scheme` when `follow_system_theme` is on). Custom layers are re-added automatically after a theme swap. Use `theme="light"` or `theme="dark"` to force a mode. Provide `light-style` and `dark-style` props for separate style URLs per theme.
+
+### Route progress with a vehicle marker
+
+Keep progress client-first: `progress-model` follows an Alpine property, so dragging a slider makes no server requests. Entangle it (deferred) to keep `$progress` in sync on the next request. Do **not** use `wire:model.live` on a progress slider.
+
+```blade
+<div x-data="{ progress: $wire.entangle('progress') }">
+<x-map-route id="delivery" :coordinates="$stops" fetch-directions
+    color="#94a3b8" :width="5" :dash-array="[0.5, 1.5]"
+    progress-model="progress" progress-color="#2563eb" fit-bounds>
+    <x-map-route-marker at="start" />
+    <x-map-route-marker at="end" />
+    <x-map-route-marker at="progress" align-to-route>
+        <x-marker-content><div class="vehicle">🚚</div></x-marker-content>
+    </x-map-route-marker>
+</x-map-route>
+
+<input type="range" min="0" max="1" step="0.01" x-model.number="progress">
+<button type="button" x-on:click="$mapRoute('delivery').setProgress(1, 1500)">Play</button>
+</div>
+```
+
+For occasional server-driven updates use `:progress="$progress"` (optionally `:progress-duration="500"`). To animate from PHP without a re-render:
+
+```php
+$this->dispatch('map:route-progress-delivery', progress: 1, duration: 1500);
+```
+
+### Arcs (flights, trade flows)
+
+```php
+public array $flights = [
+    ['id' => 'acc-lhr', 'from' => [-0.17, 5.60], 'to' => [-0.45, 51.47], 'city' => 'London', 'mode' => 'air'],
+    ['id' => 'tem-rtm', 'from' => [0.02, 5.63], 'to' => [4.0, 51.95], 'city' => 'Rotterdam', 'mode' => 'sea'],
+];
+```
+
+```blade
+<x-map projection="globe" :zoom="1.2">
+    <x-map-arc id="flights" :data="$flights" :curvature="0.25"
+        :paint="['line-color' => ['match', ['get', 'mode'], 'air', '#a78bfa', 'sea', '#34d399', '#888']]"
+        :hover-paint="['line-width' => 3, 'line-opacity' => 1]">
+        <x-slot:tooltip>{city} by {mode}</x-slot:tooltip>
+    </x-map-arc>
+</x-map>
+```
+
+```php
+#[On('map:arc-clicked')]
+public function arcClicked(array $arc): void { /* $arc is the original datum */ }
+```
+
+### GeoJSON overlay
+
+```blade
+<x-map :center="[-122.41, 37.77]" :zoom="12">
+    <x-map-geojson id="area" :data="$area" interactive
+        :fill-paint="['fill-color' => '#3b82f6', 'fill-opacity' => 0.25]"
+        :fill-hover-paint="['fill-opacity' => 0.45]"
+        :line-paint="['line-color' => '#2563eb', 'line-width' => 2]">
+        <x-slot:popup><strong>{name}</strong></x-slot:popup>
+    </x-map-geojson>
+</x-map>
+```
+
+Pass `false` to `fill-paint`, `line-paint` or `circle-paint` to drop a layer. Use `<x-map blank>` for choropleths without a basemap. `data` may also be a URL.
+
+### 3D view and custom controls
+
+```blade
+<x-map provider="openfreemap-liberty" :center="[-0.1276, 51.5072]" :zoom="15.5" :pitch="55">
+    <x-map-controls three-d :locate="false" />
+    <x-map-control position="top-left">
+        <button type="button" x-on:click="$map.easeTo({ pitch: 60, bearing: -20, duration: 1000 })">3D view</button>
+        <button type="button" x-on:click="$map.easeTo({ pitch: 0, bearing: 0, duration: 1000 })">Top down</button>
+    </x-map-control>
+</x-map>
+```
+
+`$map` is an Alpine magic returning the MapLibre instance of the enclosing map. From JS outside a map use `LivewireMap.getMap('map-id')`.
 
 ## Events Reference
 
@@ -424,7 +518,7 @@ public function onMapClick(float $lat, float $lng): void
 | `map:drag-end` | `lat, lng` | |
 | `map:bearing-changed` | `bearing` | Throttled 100ms |
 | `map:pitch-changed` | `pitch` | Throttled 100ms |
-| `map:style-loaded` | — | |
+| `map:style-loaded` | `style, dark` | After every style (re)load |
 
 **Locate:** `map:locate-success` (lat, lng, accuracy), `map:locate-error` (error)
 
@@ -438,13 +532,30 @@ public function onMapClick(float $lat, float $lng): void
 
 **Route list:** `map:route-list-selected` (routeIndex)
 
-**Clusters:** `map:cluster-clicked` (clusterId, lat, lng), `map:cluster-expanded` (clusterId), `map:cluster-point-clicked` (properties, lat, lng)
+**Clusters:** `map:cluster-clicked` (cluster_id, lat, lng, count), `map:cluster-expanded` (cluster_id, zoom), `map:cluster-point-clicked` (properties, lat, lng)
+
+**Arcs:** `map:arc-clicked`, `map:arc-hovered` (id, arc or null, lat, lng)
+
+**GeoJSON:** `map:geojson-clicked`, `map:geojson-hovered` (id, feature or null, lat, lng)
+
+**Other:** `map:viewport-changed` (center, zoom, bearing, pitch), `map:theme-changed` (dark), `map:3d-toggled` (enabled), `map:style-reloaded`
+
+Every event detail includes `mapId`.
 
 ### Inbound commands (Livewire → map)
+
+Add `mapId` to any map command to target a single map.
 
 | Command | Payload | Description |
 |---------|---------|-------------|
 | `map:fly-to` | `center, zoom, bearing, pitch, essential` | Animated pan/zoom |
+| `map:ease-to` | `center, zoom, bearing, pitch, duration` | Eased camera move |
+| `map:set-center` | `center` | |
+| `map:set-theme` | `theme` (light, dark, auto) | |
+| `map:route-progress-{id}` | `progress, duration` | Set/animate route progress |
+| `map:select-route-{id}` | `index` | Select an OSRM alternative |
+| `map:update-arc-data-{id}` | `data` | Replace arc data |
+| `map:update-geojson-{id}` | GeoJSON | Replace GeoJSON data |
 | `map:jump-to` | `center, zoom, bearing, pitch` | Instant move |
 | `map:fit-bounds` | `bounds, padding, maxZoom` | Fit to bounding box |
 | `map:set-zoom` | `zoom` | |
@@ -481,11 +592,11 @@ $geoJson = GeoJSON::fromArray([
 
 - **Large datasets** (100+ points): Always use `<x-map-cluster-layer>` instead of individual `<x-map-marker>` components.
 - **Dynamic updates**: Use `map:update-cluster-data-{id}`, `map:update-route-data-{id}`, `map:update-route-group-{id}` to push changes without Livewire re-rendering the component tree.
-- **`:max-features-to-inline`**: Default `2000`. Above this, data is injected via JavaScript `_clusterData` instead of HTML attributes to avoid DOM size limits.
+- **Data transport**: cluster, arc, GeoJSON and route-group data ships in a JSON `<script>` block (no attribute size limits). `:max-features-to-inline` is deprecated and ignored.
 - **Throttled events**: `map:move`, `map:zoom`, `map:bearing-changed`, `map:pitch-changed` fire at 100ms intervals. Use `map:center-changed`, `map:zoom-changed` for post-interaction final values.
 - **Cluster tuning**: Increase `:cluster-radius` (e.g., `80`) for fewer clusters and faster rendering. Set `:cluster-max-zoom="12"` to stop unclustering at lower zoom levels. Use `:tolerance="0.8"` to simplify geometries at the cost of precision.
 - **Buffer**: `:buffer="512"` reduces tile-edge artefacts during fast panning (uses more memory).
-- **`wire:ignore`**: The `<x-map>` root div already uses `wire:ignore`, so Livewire will not touch the map DOM — child components communicate via Alpine.js `x-data` directives and the `x-map-*` custom directives.
+- **Reactivity**: `<x-map>` uses `wire:ignore.self` (the MapLibre canvas is fully ignored). Child components are morphed and diffed; only changed markers/layers are touched, and the camera is preserved. Give maps an explicit `id` only when you need to target them.
 
 ## Troubleshooting
 
@@ -493,8 +604,9 @@ $geoJson = GeoJSON::fromArray([
 |---------|-----|
 | Map not rendering | Ensure `@livewireMapStyles` is in `<head>` and `@livewireMapScripts` is before `</body>` |
 | 404 on assets | Check `inject_assets` config; if `'route'`, package routes must not be blocked by middleware |
-| Markers not updating | Trigger a Livewire `$refresh` or ensure the parent component re-renders (map uses `wire:ignore` so child Blade re-renders are needed) |
+| Markers not updating | Make sure the map is not wrapped in `wire:ignore`, and use `wire:key` on markers rendered in loops |
+| MapLibre not loading after upgrading | Set `cdn_url` to `null` (or a `.mjs` URL); MapLibre v6 has no UMD build. Re-publish views if you published them |
 | Directions not loading | Test OSRM server is reachable; set a self-hosted `osrm_url` for production |
 | Map blank on resize | Dispatch `map:resize` from Livewire after showing a previously hidden container |
 | Routes wrong geometry | Confirm coordinates are `[lng, lat]` order — not `[lat, lng]` |
-| CARTO tiles not showing | Check `carto_license` config; commercial use requires `'enterprise'` |
+| Need commercial basemaps | CARTO basemaps are free for non-commercial use only; use OpenFreeMap providers or your own `style` |
