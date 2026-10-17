@@ -1,8 +1,14 @@
+@php($maplibre = \Kwasii\LivewireMapcn\Support\Assets::maplibreScript())
 @if(config('livewire-mapcn.load_from_cdn', true))
-<script src="{{ config('livewire-mapcn.cdn_url', 'https://cdn.jsdelivr.net/npm/maplibre-gl@5.19.0/dist/maplibre-gl.js') }}"></script>
-@endif
-@if(config('livewire-mapcn.inject_assets', 'route') === 'published')
-<script src="{{ asset('vendor/livewire-mapcn/livewire-mapcn.js') }}" defer></script>
+@if($maplibre['module'])
+{{-- MapLibre v6+ is ESM-only: import it and expose it as window.maplibregl. --}}
+<script type="module" data-navigate-once>
+    import * as maplibregl from {!! json_encode($maplibre['url'], JSON_UNESCAPED_SLASHES | JSON_HEX_TAG) !!};
+    window.maplibregl = maplibregl;
+    window.dispatchEvent(new CustomEvent('maplibre:ready'));
+</script>
 @else
-<script src="{{ route('livewire-mapcn.js') }}" defer></script>
+<script src="{{ $maplibre['url'] }}" crossorigin data-navigate-once></script>
 @endif
+@endif
+<script src="{{ \Kwasii\LivewireMapcn\Support\Assets::url(\Kwasii\LivewireMapcn\Support\Assets::JS) }}" defer data-navigate-once></script>

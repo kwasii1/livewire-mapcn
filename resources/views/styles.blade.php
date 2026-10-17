@@ -1,8 +1,15 @@
+@php($maplibre = \Kwasii\LivewireMapcn\Support\Assets::maplibreScript())
 @if(config('livewire-mapcn.load_from_cdn', true))
-<link href="{{ config('livewire-mapcn.cdn_css_url', 'https://cdn.jsdelivr.net/npm/maplibre-gl@4.x/dist/maplibre-gl.css') }}" rel="stylesheet" />
-@endif
-@if(config('livewire-mapcn.inject_assets', 'route') === 'published')
-<link href="{{ asset('vendor/livewire-mapcn/livewire-mapcn.css') }}" rel="stylesheet" />
+<link rel="preconnect" href="{{ \Kwasii\LivewireMapcn\Support\Assets::origin($maplibre['url']) }}" crossorigin>
+@if($maplibre['module'])
+{{-- Start downloading MapLibre from <head>, long before the script tag at the end of <body> runs. --}}
+<link rel="modulepreload" href="{{ $maplibre['url'] }}" crossorigin>
 @else
-<link href="{{ route('livewire-mapcn.css') }}" rel="stylesheet" />
+<link rel="preload" href="{{ $maplibre['url'] }}" as="script" crossorigin>
 @endif
+<link href="{{ \Kwasii\LivewireMapcn\Support\Assets::maplibreStylesheet() }}" rel="stylesheet" />
+@endif
+@foreach(config('livewire-mapcn.preconnect', []) as $origin)
+<link rel="preconnect" href="{{ $origin }}" crossorigin>
+@endforeach
+<link href="{{ \Kwasii\LivewireMapcn\Support\Assets::url(\Kwasii\LivewireMapcn\Support\Assets::CSS) }}" rel="stylesheet" />

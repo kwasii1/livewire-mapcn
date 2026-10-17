@@ -1,35 +1,8 @@
-<div
-    x-data
-    x-map-cluster-layer
-    data-cluster-id="{{ $id }}"
-    data-cluster-config="{{ json_encode([
-        'id' => $id,
-        'url' => $url,
-        'clusterMaxZoom' => $clusterMaxZoom,
-        'clusterRadius' => $clusterRadius,
-        'clusterMinPoints' => $clusterMinPoints,
-        'clusterColor' => $clusterColor,
-        'clusterTextColor' => $clusterTextColor,
-        'clusterSizeStops' => $clusterSizeStops,
-        'pointColor' => $pointColor,
-        'pointRadius' => $pointRadius,
-        'showCount' => $showCount,
-        'popupProperty' => $popupProperty,
-        'popupTemplate' => $popupTemplate,
-        'clickZoom' => $clickZoom,
-        'buffer' => $buffer,
-        'tolerance' => $tolerance,
-        'disablePopup' => $disablePopup,
-    ]) }}"
-    @if(!$url)
-    @if(count($geoJsonData['features'] ?? [])> $maxFeaturesToInline)
-    x-init="$el._clusterData = {{ json_encode($geoJsonData) }}"
-    @else
-    data-cluster-data="{{ json_encode($geoJsonData) }}"
+<div x-map-cluster-layer data-cluster-id="{{ $id }}" data-lm-config="{{ $config }}" hidden {{ $attributes->merge(['class' => $class]) }}>
+    @if($json !== null)
+    <script type="application/json" data-lm-json="data">{!! $json !!}</script>
     @endif
-    @endif
-    class="{{ $class }}">
-    @if(isset($popup))
-    <template x-ref="clusterPopup">{{ $popup }}</template>
-    @endif
+    @isset($popup)
+    <template x-ref="clusterPopup"><div class="lm-popup">{{ $popup }}</div></template>
+    @endisset
 </div>
