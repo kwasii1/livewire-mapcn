@@ -1,10 +1,15 @@
 {
     "name": "kwasii/livewire-mapcn",
-    "description": "Mapcn inspired laravel livewire package to add maps to your laravel livewire project",
+    "description": "Beautiful MapLibre maps for Laravel Livewire, inspired by mapcn: markers, popups, routes with progress, arcs, GeoJSON, clusters and 3D.",
     "keywords": [
         "kwasii",
         "laravel",
-        "livewire-mapcn"
+        "livewire",
+        "livewire-mapcn",
+        "maplibre",
+        "maps",
+        "mapcn",
+        "geojson"
     ],
     "homepage": "https://github.com/kwasii/livewire-mapcn",
     "license": "MIT",
@@ -17,21 +22,21 @@
     ],
     "require": {
         "php": "^8.3",
-        "spatie/laravel-package-tools": "^1.16",
+        "spatie/laravel-package-tools": "^1.93",
         "illuminate/contracts": "^11.0||^12.0||^13.0",
         "livewire/livewire": "^3.0||^4.0"
     },
     "require-dev": {
-        "laravel/pint": "^1.14",
-        "nunomaduro/collision": "^8.8",
-        "larastan/larastan": "^3.0",
-        "orchestra/testbench": "^9.0.0||^10.0.0||^11.0.0",
-        "pestphp/pest": "^4.0",
-        "pestphp/pest-plugin-arch": "^4.0",
-        "pestphp/pest-plugin-laravel": "^4.0",
+        "laravel/pint": "^1.32",
+        "nunomaduro/collision": "^8.9",
+        "larastan/larastan": "^3.13",
+        "orchestra/testbench": "^9.0||^10.0||^11.0",
+        "pestphp/pest": "^4.0||^5.0",
+        "pestphp/pest-plugin-arch": "^4.0||^5.0",
+        "pestphp/pest-plugin-laravel": "^4.0||^5.0",
         "phpstan/extension-installer": "^1.4",
-        "phpstan/phpstan-deprecation-rules": "^2.0",
-        "phpstan/phpstan-phpunit": "^2.0"
+        "phpstan/phpstan-deprecation-rules": "^2.0.5",
+        "phpstan/phpstan-phpunit": "^2.1"
     },
     "autoload": {
         "psr-4": {
@@ -51,7 +56,8 @@
         "analyse": "vendor/bin/phpstan analyse",
         "test": "vendor/bin/pest",
         "test-coverage": "vendor/bin/pest --coverage",
-        "format": "vendor/bin/pint"
+        "format": "vendor/bin/pint",
+        "test-js": "node --test \"tests/js/*.test.mjs\""
     },
     "config": {
         "sort-packages": true,

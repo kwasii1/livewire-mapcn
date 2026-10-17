@@ -8,3 +8,8 @@ parameters:
         - config
         - database
     tmpDir: build/phpstan
+    ignoreErrors:
+        # Package views use the "livewire-mapcn::" namespace, which Larastan cannot resolve.
+        -
+            message: '#expects view-string\|null, string given#'
+            identifier: argument.type
