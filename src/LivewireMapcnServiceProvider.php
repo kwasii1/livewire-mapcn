@@ -6,17 +6,22 @@ use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Route;
 use Kwasii\LivewireMapcn\Commands\LivewireMapcnCommand;
 use Kwasii\LivewireMapcn\Components\Map;
+use Kwasii\LivewireMapcn\Components\MapArc;
 use Kwasii\LivewireMapcn\Components\MapClusterLayer;
+use Kwasii\LivewireMapcn\Components\MapControl;
 use Kwasii\LivewireMapcn\Components\MapControls;
+use Kwasii\LivewireMapcn\Components\MapGeoJson;
 use Kwasii\LivewireMapcn\Components\MapMarker;
 use Kwasii\LivewireMapcn\Components\MapPopup;
 use Kwasii\LivewireMapcn\Components\MapRoute;
 use Kwasii\LivewireMapcn\Components\MapRouteGroup;
 use Kwasii\LivewireMapcn\Components\MapRouteList;
+use Kwasii\LivewireMapcn\Components\MapRouteMarker;
 use Kwasii\LivewireMapcn\Components\MarkerContent;
 use Kwasii\LivewireMapcn\Components\MarkerLabel;
 use Kwasii\LivewireMapcn\Components\MarkerPopup;
 use Kwasii\LivewireMapcn\Components\MarkerTooltip;
+use Kwasii\LivewireMapcn\Support\Assets;
 use Spatie\LaravelPackageTools\Package;
 use Spatie\LaravelPackageTools\PackageServiceProvider;
 
@@ -49,7 +54,11 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
         Blade::component('map-route', MapRoute::class);
         Blade::component('map-route-group', MapRouteGroup::class);
         Blade::component('map-route-list', MapRouteList::class);
+        Blade::component('map-route-marker', MapRouteMarker::class);
         Blade::component('map-cluster-layer', MapClusterLayer::class);
+        Blade::component('map-arc', MapArc::class);
+        Blade::component('map-geojson', MapGeoJson::class);
+        Blade::component('map-control', MapControl::class);
 
         Blade::directive('livewireMapScripts', function () {
             return "<?php echo view('livewire-mapcn::scripts')->render(); ?>";
@@ -69,20 +78,10 @@ class LivewireMapcnServiceProvider extends PackageServiceProvider
 
     protected function registerAssetRoutes(): void
     {
-        Route::get('/livewire-mapcn/livewire-mapcn.js', function () {
-            return response(
-                file_get_contents(__DIR__.'/../resources/js/livewire-mapcn.js'),
-                200,
-                ['Content-Type' => 'application/javascript']
-            );
-        })->name('livewire-mapcn.js');
+        Route::get('/livewire-mapcn/livewire-mapcn.js', fn () => Assets::response(Assets::JS))
+            ->name('livewire-mapcn.js');
 
-        Route::get('/livewire-mapcn/livewire-mapcn.css', function () {
-            return response(
-                file_get_contents(__DIR__.'/../resources/css/livewire-mapcn.css'),
-                200,
-                ['Content-Type' => 'text/css']
-            );
-        })->name('livewire-mapcn.css');
+        Route::get('/livewire-mapcn/livewire-mapcn.css', fn () => Assets::response(Assets::CSS))
+            ->name('livewire-mapcn.css');
     }
 }

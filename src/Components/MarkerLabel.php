@@ -8,15 +8,12 @@ use Illuminate\View\Component;
 class MarkerLabel extends Component
 {
     public function __construct(
-        public string $text,
+        public ?string $text = null,
         public string $position = 'bottom',
         public string $class = '',
     ) {}
 
-    /**
-     * @return View
-     */
-    public function render()
+    public function render(): View
     {
         return view('livewire-mapcn::components.marker-label');
     }

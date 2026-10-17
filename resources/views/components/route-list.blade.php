@@ -1,63 +1,32 @@
-@php
-$positionClasses = match($position) {
-'top-left' => 'top-4 left-4',
-'top-right' => 'top-4 right-4',
-'bottom-left' => 'bottom-4 left-4',
-'bottom-right' => 'bottom-4 right-4',
-default => 'top-4 left-4',
-};
-@endphp
 <div
+    wire:ignore
     x-data
-    x-map-route-list="{
-        routeId: '{{ $routeId }}',
-        mapId: '{{ $mapId }}',
-        showDistance: {{ $showDistance ? 'true' : 'false' }},
-        showDuration: {{ $showDuration ? 'true' : 'false' }},
-        showFastestBadge: {{ $showFastestBadge ? 'true' : 'false' }},
-        showTimeDiff: {{ $showTimeDiff ? 'true' : 'false' }},
-        title: '{{ $title }}'
-    }"
+    x-map-route-list
+    data-lm-config="{{ $config }}"
     style="display: none;"
-    {{ $attributes->merge(['class' => "absolute {$positionClasses} z-51"]) }}>
-    <div class="{{ $width }} bg-white dark:bg-zinc-800 rounded-lg shadow-lg border border-zinc-200 dark:border-zinc-700 overflow-hidden {{ $containerClass }}">
-        <div class="px-3 py-2 border-b border-zinc-200 dark:border-zinc-700 {{ $headerClass }}">
-            <h3 class="text-sm font-semibold text-zinc-900 dark:text-zinc-100" x-text="_rl.title"></h3>
+    {{ $attributes->merge(['class' => 'lm-route-list lm-route-list--'.$position]) }}>
+    <div class="lm-route-list-panel {{ $width }} {{ $containerClass }}">
+        <div class="lm-route-list-header {{ $headerClass }}">
+            <h3 x-text="_rl.title"></h3>
         </div>
-        <div class="divide-y divide-zinc-100 dark:divide-zinc-700">
+        <div class="lm-route-list-items" role="listbox" :aria-label="_rl.title">
             <template x-for="(route, index) in _rl.routes" :key="index">
                 <button
+                    type="button"
+                    role="option"
+                    :aria-selected="_rl.selectedIndex === index"
                     @click="_rl.selectRoute(index)"
-                    :class="_rl.selectedIndex === index
-                        ? 'bg-blue-50 dark:bg-blue-900/30 border-l-4 border-l-blue-500'
-                        : 'hover:bg-zinc-50 dark:hover:bg-zinc-700/50 border-l-4 border-l-transparent'"
-                    class="w-full px-3 py-2.5 text-left transition-colors cursor-pointer {{ $itemClass }}">
-                    <div class="flex items-center justify-between">
-                        <div class="flex items-center gap-2">
-                            <span class="inline-flex items-center justify-center w-6 h-6 rounded-full text-xs font-bold shrink-0"
-                                :class="_rl.selectedIndex === index
-                                    ? 'bg-blue-500 text-white'
-                                    : 'bg-zinc-200 dark:bg-zinc-600 text-zinc-700 dark:text-zinc-200'"
-                                x-text="String.fromCharCode(65 + index)"></span>
-                            <div>
-                                <span x-show="_rl.showDistance"
-                                    class="text-sm font-medium text-zinc-900 dark:text-zinc-100"
-                                    x-text="_rl.formatDistance(route.distance)"></span>
-                                <span x-show="_rl.showDuration"
-                                    class="text-xs text-zinc-500 dark:text-zinc-400 ml-1"
-                                    x-text="_rl.formatDuration(route.duration)"></span>
-                            </div>
-                        </div>
-                        <div class="flex flex-col items-end gap-0.5">
-                            <span x-show="_rl.showFastestBadge && index === _rl.fastestIndex"
-                                class="text-xs font-semibold uppercase tracking-wide text-green-600 dark:text-green-400">
-                                Fastest
-                            </span>
-                            <span x-show="_rl.showTimeDiff && _rl.timeDiff(index)"
-                                class="text-[10px] text-zinc-400 dark:text-zinc-500"
-                                x-text="_rl.timeDiff(index)"></span>
-                        </div>
-                    </div>
+                    :class="{ 'lm-selected': _rl.selectedIndex === index }"
+                    class="lm-route-list-item {{ $itemClass }}">
+                    <span class="lm-route-list-badge" x-text="String.fromCharCode(65 + index)"></span>
+                    <span class="lm-route-list-meta">
+                        <span x-show="_rl.showDuration" class="lm-route-list-duration" x-text="_rl.formatDuration(route.duration)"></span>
+                        <span x-show="_rl.showDistance" class="lm-route-list-distance" x-text="_rl.formatDistance(route.distance)"></span>
+                    </span>
+                    <span class="lm-route-list-tags">
+                        <span x-show="_rl.showFastestBadge && index === _rl.fastestIndex" class="lm-route-list-fastest">Fastest</span>
+                        <span x-show="_rl.showTimeDiff && _rl.timeDiff(index)" class="lm-route-list-diff" x-text="_rl.timeDiff(index)"></span>
+                    </span>
                 </button>
             </template>
         </div>
